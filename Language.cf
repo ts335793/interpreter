@@ -35,7 +35,7 @@ _. Exp3 ::= Exp4 ;
 PInt.       Param ::= Integer ;
 PApp1.      Param ::= "(" Exp ")" ;
 PApp2.      Param ::= Ident ;
-PListEmpty. Param ::= "[" [Exp] "]" ;
+PListConst1. Param ::= "[" [Exp] "]" ;
 
 separator Ident "" ;
 separator Param "" ;
