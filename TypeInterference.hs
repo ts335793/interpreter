@@ -138,7 +138,8 @@ typeOf' (EIf e1 e2 e3) = do
 typeOf' (ELam [] e) = typeOf' e
 typeOf' (ELam (param:params) e) = do
   paramt <- newLabel
-  local (insert param paramt) (typeOf' (ELam params e))
+  et <- local (insert param paramt) (typeOf' (ELam params e))
+  return (paramt :-> et)
 -- Exp1
 typeOf' (ENot e) = typeOf'BB e
 typeOf' (EAnd e1 e2) = typeOf'BBB e1 e2
@@ -174,17 +175,14 @@ typeOf' (EApp2 f (param:params)) = do
 typeOf' (EListConst1 elems) =
   foldM (\acc elem -> do
     elemt <- typeOf' elem
-    unificate acc elemt
+    unificate acc (TList (Just elemt))
     return $ TList (Just elemt)) (TList Nothing) elems
 typeOf' (EListConst2 p1 p2) = do
   p1t <- typeOfParam' p1
   p2t <- typeOfParam' p2
-  case p2t of
-    TList Nothing -> return $ TList (Just p1t)
-    TList (Just p2et) -> do
-      unificate p1t p2et
-      return p2et
-    otherwise -> error $ "Cannot construct list from types: " ++ show p1t ++ ", " ++ show p2t ++ "."
+  unificate p2t (TList Nothing)
+  unificate (TList (Just p1t)) p2t
+  return (TList (Just p1t))
 
 applySubstitutions :: Type -> IM Type
 applySubstitutions TInt = return TInt
@@ -207,3 +205,19 @@ typeOf e =
     (Right t, (l, subs)) -> 
       let (Right t', _) = runReader (runStateT (runEitherT (applySubstitutions t)) (l, subs)) empty
       in t'
+typeOf2 e = 
+  case runReader (runStateT (runEitherT (typeOf' e)) (0, empty)) empty of
+    (Left msg, (l, subs)) -> error msg
+    (Right t, (l, subs)) -> 
+      let (Right t', _) = runReader (runStateT (runEitherT (applySubstitutions t)) (l, subs)) empty
+      in (t, l, subs, t')
+
+test1 = ELam [Ident "x"] (EApp2 (Ident "x") [])
+test2 = ELam [Ident "x", Ident "y"] (EApp2 (Ident "x") [])
+test3 = ELam [Ident "x", Ident "y", Ident "z"] (
+  EApp1 (EApp2 (Ident "x") [PApp2 (Ident "z")])
+    [PApp1 (EApp2 (Ident "y") [PApp2 (Ident "z")])])
+
+intList = EListConst1 [EInt 1]
+list = EListConst1 [] 
+test4 = ELam [Ident "x"] (EIf (EApp2 (Ident "x") [PInt 1]) list intList)
