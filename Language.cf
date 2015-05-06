@@ -1,0 +1,42 @@
+comment "//" ;
+comment "/*" "*/" ;
+
+ELet.       Exp ::= "let" Ident [Ident] "=" Exp "in" Exp ;
+EIf.        Exp ::= "if" Exp "then" Exp "else" Exp ;
+ELam.       Exp ::= "\\" [Ident] "->" Exp ;
+
+ENot. Exp1 ::= "!" Exp2 ;
+EAnd. Exp1 ::= Exp1 "&&" Exp2 ;
+EOr.  Exp1 ::= Exp1 "||" Exp2 ;
+EEq.  Exp1 ::= Exp1 "==" Exp2 ;
+ENeq. Exp1 ::= Exp1 "!=" Exp2 ;
+ELeq. Exp1 ::= Exp1 "<=" Exp2 ;
+EGeq. Exp1 ::= Exp1 ">=" Exp2 ;
+ELt.  Exp1 ::= Exp1 "<"  Exp2 ;
+EGt.  Exp1 ::= Exp1 ">"  Exp2 ;
+
+EPlus.  Exp2 ::= Exp2 "+" Exp3 ;
+EMinus. Exp2 ::= Exp2 "-" Exp3 ;
+
+ETimes.  Exp3 ::= Exp3 "*" Exp4 ;
+EObelus. Exp3 ::= Exp3 "/" Exp4 ;
+
+EInt.        Exp4 ::= Integer ;
+EApp1.       Exp4 ::= "(" Exp ")" [Param] ;
+EApp2.       Exp4 ::= Ident [Param] ;
+EListConst1. Exp4 ::= "[" [Exp] "]" ;
+EListConst2. Exp4 ::= Param ":" Param ;
+
+_. Exp  ::= Exp1 ;
+_. Exp1 ::= Exp2 ;
+_. Exp2 ::= Exp3 ;
+_. Exp3 ::= Exp4 ;
+
+PInt.       Param ::= Integer ;
+PApp1.      Param ::= "(" Exp ")" ;
+PApp2.      Param ::= Ident ;
+PListEmpty. Param ::= "[" [Exp] "]" ;
+
+separator Ident "" ;
+separator Param "" ;
+separator Exp "," ;
