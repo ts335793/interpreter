@@ -14,10 +14,10 @@ import qualified Data.Set as Set
 import Prelude ()
 import Prelude.Compat
 
-import Debug.Trace
+-- import Debug.Trace
 
-traceM :: (Monad m) => String -> m ()
-traceM string = trace string $ return ()
+-- traceM :: (Monad m) => String -> m ()
+-- traceM string = trace string $ return ()
 
 type Label = Int
 
@@ -36,6 +36,7 @@ data Env = Env (Map Ident QType)
   deriving Show
 
 type IM = EitherT String (StateT (Label, Map Label Type) (Reader Env))
+
 
 class ContainingFreeVariables a where
   freeVariables :: a -> IM (Set Label)
@@ -65,6 +66,7 @@ instance ContainingFreeVariables Env where
       fqt <- freeVariables qt
       return $ acc <> fqt) Set.empty (Map.elems env)
 
+
 newLabel :: IM Type
 newLabel = do
   (x, y) <- lift get
@@ -81,7 +83,6 @@ setSubstitutions subs = do
   (x, _) <- lift get
   lift $ put (x, subs)
 
--- rozw
 setSubstitution :: Label -> Type -> IM ()
 setSubstitution l t
   | TVar l == t = return ()
@@ -91,7 +92,6 @@ setSubstitution l t
         subs'' = Map.map (applySubstitutions subs') subs'
     setSubstitutions subs''
 
--- rozw
 containsLabel :: Label -> Type -> IM Bool
 containsLabel _ TInt = return False
 containsLabel _ TBool = return False
@@ -101,7 +101,6 @@ containsLabel l (TVar x)
   | otherwise = return False
 containsLabel l (TList t) = containsLabel l t
 
--- nie rozw 1 -> rozw
 applySubstitutions :: (Map Label Type) -> Type -> Type
 applySubstitutions subs TInt = TInt
 applySubstitutions subs TBool = TBool
@@ -112,13 +111,11 @@ applySubstitutions subs (TVar x) =
     Nothing -> TVar x
 applySubstitutions subs (TList t) = TList (applySubstitutions subs t)
 
--- nie rozw 1 -> rozw
 applySubstitutionsM :: Type -> IM Type
 applySubstitutionsM t = do
   subs <- getSubstitutions
   return $ applySubstitutions subs t
 
--- rozw -> rozw
 unificate' :: Type -> Type -> IM Type
 unificate' TInt TInt = return TInt
 unificate' TBool TBool = return TBool
@@ -162,10 +159,10 @@ generalize t = do
 
 instantiate :: QType -> IM Type
 instantiate (Forall vs t) = do
-  env <- ask
-  subs <- getSubstitutions
-  traceM ("INST0: " ++ show env ++ " " ++ show subs)
-  traceM ("INST1: " ++ show vs ++ " " ++ show t)
+  -- env <- ask
+  -- subs <- getSubstitutions
+  -- traceM ("INST0: " ++ show env ++ " " ++ show subs)
+  -- traceM ("INST1: " ++ show vs ++ " " ++ show t)
   t' <- applySubstitutionsM t
   subs <- sequence $ Map.fromSet (const newLabel) vs
   return $ applySubstitutions subs t'
@@ -207,18 +204,18 @@ instance Typeable Exp where
   -- Exp
   typeOf (ELet x params body e) = do
     xt <- newLabel
-    env <- ask
-    subs <- getSubstitutions
-    traceM ("ELET0: " ++ show env ++ " | " ++ show subs)
-    traceM ("ELET0.1: " ++ show e)
-    traceM ("ELET1: " ++ show xt)
+    -- env <- ask
+    -- subs <- getSubstitutions
+    -- traceM ("ELET0: " ++ show env ++ " | " ++ show subs)
+    -- traceM ("ELET0.1: " ++ show e)
+    -- traceM ("ELET1: " ++ show xt)
     bodyt <- local (envInsert x (emptyQType xt)) (typeOf (ELam params body))
-    subs <- getSubstitutions
-    traceM ("ELET2: " ++ show bodyt ++ " |  " ++ show subs)
+    -- subs <- getSubstitutions
+    -- traceM ("ELET2: " ++ show bodyt ++ " |  " ++ show subs)
     unificate xt bodyt
     gxt <- generalize xt
-    subs <- getSubstitutions
-    traceM ("ELET3: " ++ show gxt ++ " | " ++ show subs)
+    -- subs <- getSubstitutions
+    -- traceM ("ELET3: " ++ show gxt ++ " | " ++ show subs)
     local (envInsert x gxt) (typeOf e)
   typeOf (EIf e1 e2 e3) = do
     e1t <- typeOf e1
@@ -226,18 +223,18 @@ instance Typeable Exp where
     e3t <- typeOf e3
     unificate e1t TBool
     unificate e2t e3t
-  typeOf (ELam [] e) = do
-    env <- ask
-    subs <- getSubstitutions
-    traceM ("ELAM[]0: " ++ show env ++ " " ++ show subs)
-    traceM ("ELAM[]1: " ++ show e)
+  typeOf (ELam [] e) = -- do
+    -- env <- ask
+    -- subs <- getSubstitutions
+    -- traceM ("ELAM[]0: " ++ show env ++ " " ++ show subs)
+    -- traceM ("ELAM[]1: " ++ show e)
     typeOf e
   typeOf (ELam (param:params) e) = do
     paramt <- newLabel
-    env <- ask
-    subs <- getSubstitutions    
-    traceM ("ELAM[..]0: " ++ show env ++ " " ++ show subs)
-    traceM ("ELAM[..]1: " ++ show e)
+    -- env <- ask
+    -- subs <- getSubstitutions    
+    -- traceM ("ELAM[..]0: " ++ show env ++ " " ++ show subs)
+    -- traceM ("ELAM[..]1: " ++ show e)
     et <- local (envInsert param (emptyQType paramt)) (typeOf (ELam params e))
     applySubstitutionsM (paramt :-> et)
   -- Exp1
@@ -267,12 +264,12 @@ instance Typeable Exp where
       return ot) ft params
   typeOf (EApp2 f params) = do
     fqt <- asks (envGet f)
-    subs <- getSubstitutions
-    env <- ask
-    traceM ("EAPP[]0: " ++ show env ++ " " ++ show subs)
-    traceM ("EAPP[]1: " ++ show f ++ " " ++ show params)
+    -- subs <- getSubstitutions
+    -- env <- ask
+    -- traceM ("EAPP[]0: " ++ show env ++ " " ++ show subs)
+    -- traceM ("EAPP[]1: " ++ show f ++ " " ++ show params)
     ft <- instantiate fqt
-    traceM ("EAPP[]2: " ++ show ft)
+    -- traceM ("EAPP[]2: " ++ show ft)
     foldM (\acc param -> do
       paramt <- typeOf param
       ot <- newLabel
@@ -330,4 +327,3 @@ test7 = EApp1 (ELam [Ident "id"] (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 5
 test8 = ELam [Ident "id"] (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 5])
 -- (\id -> id 5)
 test9 = ELam [Ident "id"] (EApp2 (Ident "id") [PInt 5])
-
