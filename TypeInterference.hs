@@ -299,12 +299,6 @@ checkType2 e =
   case runReader (runStateT (runEitherT (typeOf e)) (0, Map.empty)) (Env Map.empty) of
     (Left msg, (l, subs)) -> error msg
     (Right t, (l, subs)) -> (t, l, subs, applySubstitutions subs t)
-{-checkType2 e = 
-  case runReader (runStateT (runEitherT (typeOf e)) (0, empty)) empty of
-    (Left msg, (l, subs)) -> error msg
-    (Right t, (l, subs)) -> 
-      let (Right t', _) = runReader (runStateT (runEitherT (applySubstitutions t)) (l, subs)) empty
-      in (t, l, subs, t')-}
 
 test1 = ELam [Ident "x"] (EApp2 (Ident "x") [])
 test2 = ELam [Ident "x", Ident "y"] (EApp2 (Ident "x") [])
