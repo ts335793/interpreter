@@ -11,6 +11,7 @@ import qualified Data.Set as Set
 import Prelude.Compat hiding (lookup)
 import Data.Monoid ((<>))
 import Prelude ()
+import Debug.Trace
 
 type Label = Int
 
@@ -25,6 +26,9 @@ data Type = TInt
 data QType = Forall (Set Label) Type
 
 type IM = EitherT String (StateT (Label, Map Label Type) (Reader (Map Ident QType)))
+
+traceM :: (Monad m) => String -> m ()
+traceM string = trace string $ return ()
 
 newLabel :: IM Type
 newLabel = do
@@ -66,7 +70,7 @@ containsLabel :: Label -> Type -> IM Bool
 containsLabel _ TInt = return False
 containsLabel _ TBool = return False
 containsLabel l (from :-> to) = liftM2 (||) (containsLabel l from) (containsLabel l to)
-containsLabel l (TVar x) =
+containsLabel l (TVar x) = do
   if x == l then
     return True
   else do
@@ -76,11 +80,24 @@ containsLabel l (TVar x) =
       Nothing -> return False
 containsLabel l (TList t) = containsLabel l t
 
+checkCycles :: IM ()
+checkCycles = do
+  subs <- getSubstitutions
+  mapWithKey (\l sub -> containsLabel l sub) subs
+
 unificate :: Type -> Type -> IM ()
-unificate TInt TInt = return ()
-unificate TBool TBool = return ()
-unificate (fromL :-> toL) (fromR :-> toR) = unificate fromL fromR >> unificate toL toR
+unificate TInt TInt = do
+  traceM "sddd"
+  return ()
+unificate TBool TBool = do
+  traceM "----><><M"
+  return ()
+unificate (fromL :-> toL) (fromR :-> toR) = do
+  traceM "dsafasdfsf"
+  unificate fromL fromR
+  unificate toL toR
 unificate lt@(TVar l) rt@(TVar r) = do
+  traceM "dfasdfasdf"
   ml <- hasSubstitution l
   mr <- hasSubstitution r
   if not ml then do
@@ -94,12 +111,17 @@ unificate lt@(TVar l) rt@(TVar r) = do
     rt' <- getSubstitution r
     unificate lt' rt'
 unificate lt@(TVar l) rt = do
+  traceM "1111111"
   mlt <- getMaybeSubstitution l
   case mlt of
     Just lt' -> unificate lt' rt
     Nothing -> setSubstitution l rt
-unificate lt rt@(TVar _) = unificate rt lt
-unificate (TList lt) (TList rt) = unificate lt rt
+unificate lt rt@(TVar _) = do
+  traceM "asaaaaaa"
+  unificate rt lt
+unificate (TList lt) (TList rt) = do
+  traceM "dfasdfaf"
+  unificate lt rt
 unificate l r = error $ "Couldnt unificate type " ++ (show l) ++ " with " ++ (show r) ++ "."
 
 typeOf'BB e = do
@@ -151,18 +173,20 @@ generalize t = do
 
 instantiate :: QType -> IM Type
 instantiate (Forall v t) = do
+    traceM "l-l"
     labels <- sequence $ fromSet (const newLabel) v
-    let go (TVar l)  
+    let go' x = traceM "go'" >> go x
+        go (TVar l)  
           | Set.member l v = return (labels ! l)
           | otherwise = do
             mt' <- getMaybeSubstitution l
             case mt' of
               Nothing -> return (TVar l)
-              Just t' -> go t'
-        go (TList t') = TList <$> go t'
-        go (t1 :-> t2) = (:->) <$> go t1 <*> go t2
+              Just t' -> go' t'
+        go (TList t') = TList <$> go' t'
+        go (t1 :-> t2) = (:->) <$> go' t1 <*> go' t2
         go x = return x
-    go t     
+    go' t     
 
 typeOf' :: Exp -> IM Type
 -- Exp
@@ -179,8 +203,11 @@ typeOf' (EIf e1 e2 e3) = do
   unificate e1t TBool
   unificate e2t e3t
   return e2t
-typeOf' (ELam [] e) = typeOf' e
+typeOf' (ELam [] e) = do
+  traceM "fff"
+  typeOf' e
 typeOf' (ELam (param:params) e) = do
+  traceM "ooo"
   paramt <- newLabel
   et <- local (insert param (Forall Set.empty paramt)) (typeOf' (ELam params e))
   return (paramt :-> et)
@@ -202,22 +229,23 @@ typeOf' (ETimes e1 e2) = typeOf'III e1 e2
 typeOf' (EObelus e1 e2) = typeOf'III e1 e2
 -- Exp4
 typeOf' (EInt _) = return TInt
-typeOf' (EApp1 f []) = typeOf' f
-typeOf' (EApp1 f (param:params)) = do
-  ft <- typeOf' (EApp1 f params)
-  paramt <- typeOfParam' param
-  ot <- newLabel
-  unificate ft (paramt :-> ot)
-  return ot
-typeOf' (EApp2 f []) = do
-  t <- asks (! f)
-  instantiate t
-typeOf' (EApp2 f (param:params)) = do
-  ft <- typeOf' (EApp2 f params)
-  paramt <- typeOfParam' param
-  ot <- newLabel
-  unificate ft (paramt :-> ot)
-  return ot
+typeOf' (EApp1 f params) = do
+  ft <- typeOf' f
+  foldM (\acc param -> do
+    paramt <- typeOfParam' param
+    ot <- newLabel
+    unificate acc (paramt :-> ot)
+    return ot) ft params
+typeOf' (EApp2 f params) = do
+  traceM "dupa"
+  fqt <- asks (! f)
+  ft <- instantiate fqt
+  foldM (\acc param -> do
+    traceM "asd"
+    paramt <- typeOfParam' param
+    ot <- newLabel
+    unificate acc (paramt :-> ot)
+    return ot) ft params
 typeOf' (EListConst1 elems) = do
   t <- newLabel
   foldM (\acc elem -> do
@@ -237,11 +265,13 @@ applySubstitutions TInt = return TInt
 applySubstitutions TBool = return TBool
 applySubstitutions (from :-> to) = liftM2 (:->) (applySubstitutions from) (applySubstitutions to)
 applySubstitutions xt@(TVar x) = do
+  traceM "liisdl"
   mxt <- getMaybeSubstitution x
   case mxt of
     Just xt' -> applySubstitutions xt'
     Nothing -> return xt
 applySubstitutions (TList t) = do
+  traceM "DSsdF"
   t' <- applySubstitutions t
   return (TList t')
 
@@ -268,8 +298,11 @@ test3 = ELam [Ident "x", Ident "y", Ident "z"] (
 intList = EListConst1 [EInt 1]
 list = EListConst1 []
 test4 = ELam [Ident "x"] (EIf (EApp2 (Ident "x") [PInt 1]) list intList)
-test5 = ELet (Ident "id") [(Ident "x")] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PInt 5, PApp2 (Ident "id")])
+test5 = ELet (Ident "id") [(Ident "x")] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 5])
 test6 = ELet (Ident "id") [(Ident "x")] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [])
---test6 = ELam [Ident "id"] ()
-
-s = let id x = x in (id id) 2
+test7 = EApp1 (ELam [Ident "id"] (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 5]))
+              [PApp1 (ELam [Ident "x"] (EApp2 (Ident "x") []))]
+test8 = ELam [Ident "id"] (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 5])
+test9 = ELam [Ident "id"] (EApp2 (Ident "id") [PInt 5])
+-- s = let id x = x in (id id) 2
+-- \id -> id id 5

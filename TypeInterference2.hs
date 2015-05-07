@@ -28,7 +28,7 @@ data QType = Forall (Set Label) Type
 
 data Env = Env (Map Ident QType)
 
-type IM = EitherT String (StateT (Label, Map Label Type) (Reader (Map Ident QType)))
+type IM = EitherT String (StateT (Label, Map Label Type) (Reader Env))
 
 class ContainingFreeVariables a where
   freeVariables :: a -> Set Label
@@ -121,13 +121,15 @@ unificate (TList lt) (TList rt) = do
   return (TList ut)
 unificate l r = error $ "Couldnt unificate type " ++ (show l) ++ " with " ++ (show r) ++ "."
 
-{-generalize :: Type -> IM QType
+generalize :: Type -> IM QType
 generalize t = do
-  tfv <- typeFreeVariables t
-  efv <- envFreeVariables
+  e <- ask
+  let tfv = freeVariables t
+      efv = freeVariables e
   return $ Forall (tfv Set.\\ efv) t
 
 instantiate :: QType -> IM Type
 instantiate (Forall vs t) = do
   subs <- sequence $ Map.fromSet (const newLabel) vs
-  return $ applySubstitutions subs t-}
+  return $ applySubstitutions subs t
+
