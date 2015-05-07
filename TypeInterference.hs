@@ -1,15 +1,16 @@
 module TypeInterference where
 
 import BNFC.AbsLanguage
-import Control.Monad.Reader
+import Control.Monad.Reader hiding (sequence)
 import Control.Monad.Trans.Either
 import Control.Monad.Trans.State
 import Data.Map hiding (foldr)
-import Prelude hiding (lookup)
-import Data.Monoid
 import Data.Set (Set)
 import Control.Applicative hiding (empty)
 import qualified Data.Set as Set
+import Prelude.Compat hiding (lookup)
+import Data.Monoid ((<>))
+import Prelude ()
 
 type Label = Int
 
@@ -149,18 +150,19 @@ generalize t = do
   return (Forall (tfv Set.\\ efv) t)
 
 instantiate :: QType -> IM Type
-instantiate (Forall v t) = go t
-  where
-    go (TVar l)
-      | Set.member l v = newLabel
-      | otherwise = do
-        mt' <- getMaybeSubstitution l
-        case mt' of
-          Nothing -> return (TVar l)
-          Just t' -> go t'
-    go (TList t') = TList <$> go t'
-    go (t1 :-> t2) = (:->) <$> go t1 <*> go t2
-    go x = return x
+instantiate (Forall v t) = do
+    labels <- sequence $ fromSet (const newLabel) v
+    let go (TVar l)  
+          | Set.member l v = return (labels ! l)
+          | otherwise = do
+            mt' <- getMaybeSubstitution l
+            case mt' of
+              Nothing -> return (TVar l)
+              Just t' -> go t'
+        go (TList t') = TList <$> go t'
+        go (t1 :-> t2) = (:->) <$> go t1 <*> go t2
+        go x = return x
+    go t     
 
 typeOf' :: Exp -> IM Type
 -- Exp
@@ -266,3 +268,8 @@ test3 = ELam [Ident "x", Ident "y", Ident "z"] (
 intList = EListConst1 [EInt 1]
 list = EListConst1 []
 test4 = ELam [Ident "x"] (EIf (EApp2 (Ident "x") [PInt 1]) list intList)
+test5 = ELet (Ident "id") [(Ident "x")] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PInt 5, PApp2 (Ident "id")])
+test6 = ELet (Ident "id") [(Ident "x")] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [])
+--test6 = ELam [Ident "id"] ()
+
+s = let id x = x in (id id) 2
