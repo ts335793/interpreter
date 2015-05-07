@@ -1,4 +1,4 @@
-module TypeInterference2 where
+module TypeInterference where
 
 import BNFC.AbsLanguage
 import Control.Applicative
