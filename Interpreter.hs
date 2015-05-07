@@ -7,6 +7,11 @@ import Control.Monad.Trans.Either
 import Data.Map (Map)
 import qualified Data.Map as Map
 
+import Debug.Trace
+
+traceM :: (Monad m) => String -> m ()
+traceM string = trace string $ return ()
+
 data Value = VInt Integer
            | VBool Bool
            | VLam (Value -> EitherT String (Reader Env) Value)
@@ -53,9 +58,11 @@ instance Evaluable Param where
 instance Evaluable Exp where
   -- Exp
   eval (ELet x params body e) = do
+    traceM "aaaa"
     fp <- fix (\f -> do
       f' <- f
       local (Map.insert x f') (eval (ELam params body)))
+    traceM "bbbb"
     local (Map.insert x fp) (eval e)
   eval (EIf e1 e2 e3) = do
     VBool cond <- eval e1
@@ -107,3 +114,5 @@ instance Evaluable Exp where
 
 runEval :: (Evaluable e) => e -> Either String Value
 runEval e = runReader (runEitherT (eval e)) Map.empty
+
+test1 = ELet (Ident "id") [Ident "x"] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id"),PInt 5])
