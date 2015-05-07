@@ -289,11 +289,11 @@ instance Typeable Exp where
     unificate (TList p1t) p2t
     return (TList p1t)
 
-checkType :: Exp -> Type
-checkType e = 
+runTypeOf :: Exp -> Either String Type
+runTypeOf e = 
   case runReader (runStateT (runEitherT (typeOf e)) (0, Map.empty)) (Env Map.empty) of
     (Left msg, (l, subs)) -> error msg
-    (Right t, (l, subs)) -> applySubstitutions subs t
+    (Right t, (l, subs)) -> return $ applySubstitutions subs t
 
 checkType2 e = 
   case runReader (runStateT (runEitherT (typeOf e)) (0, Map.empty)) (Env Map.empty) of

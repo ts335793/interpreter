@@ -1,5 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
-module Intepreter where
+module Interpreter where
 
 import BNFC.AbsLanguage
 import Control.Monad.Reader hiding (sequence)
@@ -104,3 +104,6 @@ instance Evaluable Exp where
     paramv <- eval param
     VList paramsv <- eval params
     return $ VList (paramv:paramsv)
+
+runEval :: (Evaluable e) => e -> Either String Value
+runEval e = runReader (runEitherT (eval e)) Map.empty
