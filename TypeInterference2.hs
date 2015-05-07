@@ -238,3 +238,36 @@ instance Typeable Exp where
     unificate p2t (TList t)
     unificate (TList p1t) p2t
     return (TList p1t)
+
+checkType :: Exp -> Type
+checkType e = 
+  case runReader (runStateT (runEitherT (typeOf e)) (0, Map.empty)) (Env Map.empty) of
+    (Left msg, (l, subs)) -> error msg
+    (Right t, (l, subs)) -> applySubstitutions subs t
+
+checkType2 e = 
+  case runReader (runStateT (runEitherT (typeOf e)) (0, Map.empty)) (Env Map.empty) of
+    (Left msg, (l, subs)) -> error msg
+    (Right t, (l, subs)) -> (t, l, subs, applySubstitutions subs t)
+{-checkType2 e = 
+  case runReader (runStateT (runEitherT (typeOf e)) (0, empty)) empty of
+    (Left msg, (l, subs)) -> error msg
+    (Right t, (l, subs)) -> 
+      let (Right t', _) = runReader (runStateT (runEitherT (applySubstitutions t)) (l, subs)) empty
+      in (t, l, subs, t')-}
+
+test1 = ELam [Ident "x"] (EApp2 (Ident "x") [])
+test2 = ELam [Ident "x", Ident "y"] (EApp2 (Ident "x") [])
+test3 = ELam [Ident "x", Ident "y", Ident "z"] (
+  EApp1 (EApp2 (Ident "x") [PApp2 (Ident "z")])
+    [PApp1 (EApp2 (Ident "y") [PApp2 (Ident "z")])])
+
+intList = EListConst1 [EInt 1]
+list = EListConst1 []
+test4 = ELam [Ident "x"] (EIf (EApp2 (Ident "x") [PInt 1]) list intList)
+test5 = ELet (Ident "id") [(Ident "x")] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 6]) -- let id x = x in id id 5
+test6 = ELet (Ident "id") [(Ident "x")] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [])
+test7 = EApp1 (ELam [Ident "id"] (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 5]))
+              [PApp1 (ELam [Ident "x"] (EApp2 (Ident "x") []))]
+test8 = ELam [Ident "id"] (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 5])
+test9 = ELam [Ident "id"] (EApp2 (Ident "id") [PInt 5])
