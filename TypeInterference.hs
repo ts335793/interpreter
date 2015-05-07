@@ -6,6 +6,10 @@ import Control.Monad.Trans.Either
 import Control.Monad.Trans.State
 import Data.Map hiding (foldr)
 import Prelude hiding (lookup)
+import Data.Monoid
+import Data.Set (Set)
+import Control.Applicative hiding (empty)
+import qualified Data.Set as Set
 
 type Label = Int
 
@@ -14,10 +18,12 @@ data Type = TInt
           | TBool
           | Type :-> Type
           | TVar Label
-          | TList (Maybe Type)
+          | TList Type
   deriving (Eq, Show)
 
-type IM = EitherT String (StateT (Int, Map Label Type) (Reader (Map Ident Type)))
+data QType = Forall (Set Label) Type
+
+type IM = EitherT String (StateT (Label, Map Label Type) (Reader (Map Ident QType)))
 
 newLabel :: IM Type
 newLabel = do
@@ -67,10 +73,7 @@ containsLabel l (TVar x) =
     case mxt of
       Just xt -> containsLabel l xt
       Nothing -> return False
-containsLabel l (TList mt) =
-  case mt of
-    Just t -> containsLabel l t
-    Nothing -> return False
+containsLabel l (TList t) = containsLabel l t
 
 unificate :: Type -> Type -> IM ()
 unificate TInt TInt = return ()
@@ -95,10 +98,7 @@ unificate lt@(TVar l) rt = do
     Just lt' -> unificate lt' rt
     Nothing -> setSubstitution l rt
 unificate lt rt@(TVar _) = unificate rt lt
-unificate (TList mlt) (TList mrt) = do
-  case (mlt, mrt) of
-    (Just lt, Just rt) -> unificate lt rt
-    otherwise -> return ()
+unificate (TList lt) (TList rt) = unificate lt rt
 unificate l r = error $ "Couldnt unificate type " ++ (show l) ++ " with " ++ (show r) ++ "."
 
 typeOf'BB e = do
@@ -121,13 +121,55 @@ typeOfParam' (PApp1 e) = typeOf' (EApp1 e [])
 typeOfParam' (PApp2 e) = typeOf' (EApp2 e [])
 typeOfParam' (PListConst1 l) = typeOf' (EListConst1 l)
 
+typeFreeVars :: Type -> IM (Set Label)
+typeFreeVars (TVar l)    = do
+  s <- getMaybeSubstitution l
+  case s of    
+    Nothing -> return (Set.singleton l)
+    Just t -> typeFreeVars t
+typeFreeVars TInt = return Set.empty
+typeFreeVars TBool = return Set.empty
+typeFreeVars (t1 :-> t2) = do
+  l1 <- typeFreeVars t1
+  l2 <- typeFreeVars t2
+  return (l1 <> l2)
+typeFreeVars (TList t) = typeFreeVars t
+
+envFreeVars :: IM (Set Label)
+envFreeVars = do
+  env <- ask :: IM (Map Ident QType)
+  foldM (\acc (Forall vars t) -> do
+    fvars <- typeFreeVars t :: IM (Set Label)
+    return $ acc <> (fvars Set.\\ vars)) Set.empty (elems env)
+
+generalize :: Type -> IM QType
+generalize t = do
+  tfv <- typeFreeVars t
+  efv <- envFreeVars
+  return (Forall (tfv Set.\\ efv) t)
+
+instantiate :: QType -> IM Type
+instantiate (Forall v t) = go t
+  where
+    go (TVar l)
+      | Set.member l v = newLabel
+      | otherwise = do
+        mt' <- getMaybeSubstitution l
+        case mt' of
+          Nothing -> return (TVar l)
+          Just t' -> go t'
+    go (TList t') = TList <$> go t'
+    go (t1 :-> t2) = (:->) <$> go t1 <*> go t2
+    go x = return x
+
 typeOf' :: Exp -> IM Type
 -- Exp
 typeOf' (ELet x params body e) = do
   xt <- newLabel
-  bodyt <- local (insert x xt) (typeOf' (ELam params body))
+  bodyt <- local (insert x (Forall Set.empty xt)) (typeOf' (ELam params body))
   unificate xt bodyt
-  local (insert x xt) (typeOf' e)
+  gxt <- generalize xt
+  local (insert x gxt) (typeOf' e)
 typeOf' (EIf e1 e2 e3) = do
   e1t <- typeOf' e1
   e2t <- typeOf' e2
@@ -138,7 +180,7 @@ typeOf' (EIf e1 e2 e3) = do
 typeOf' (ELam [] e) = typeOf' e
 typeOf' (ELam (param:params) e) = do
   paramt <- newLabel
-  et <- local (insert param paramt) (typeOf' (ELam params e))
+  et <- local (insert param (Forall Set.empty paramt)) (typeOf' (ELam params e))
   return (paramt :-> et)
 -- Exp1
 typeOf' (ENot e) = typeOf'BB e
@@ -165,24 +207,28 @@ typeOf' (EApp1 f (param:params)) = do
   ot <- newLabel
   unificate ft (paramt :-> ot)
   return ot
-typeOf' (EApp2 f []) = asks (! f)
+typeOf' (EApp2 f []) = do
+  t <- asks (! f)
+  instantiate t
 typeOf' (EApp2 f (param:params)) = do
   ft <- typeOf' (EApp2 f params)
   paramt <- typeOfParam' param
   ot <- newLabel
   unificate ft (paramt :-> ot)
   return ot
-typeOf' (EListConst1 elems) =
+typeOf' (EListConst1 elems) = do
+  t <- newLabel
   foldM (\acc elem -> do
     elemt <- typeOf' elem
-    unificate acc (TList (Just elemt))
-    return $ TList (Just elemt)) (TList Nothing) elems
+    unificate acc (TList elemt)
+    return acc) (TList t) elems
 typeOf' (EListConst2 p1 p2) = do
   p1t <- typeOfParam' p1
   p2t <- typeOfParam' p2
-  unificate p2t (TList Nothing)
-  unificate (TList (Just p1t)) p2t
-  return (TList (Just p1t))
+  t <- newLabel
+  unificate p2t (TList t)
+  unificate (TList p1t) p2t
+  return (TList p1t)
 
 applySubstitutions :: Type -> IM Type
 applySubstitutions TInt = return TInt
@@ -193,10 +239,9 @@ applySubstitutions xt@(TVar x) = do
   case mxt of
     Just xt' -> applySubstitutions xt'
     Nothing -> return xt
-applySubstitutions (TList Nothing) = return (TList Nothing)
-applySubstitutions (TList (Just t)) = do
+applySubstitutions (TList t) = do
   t' <- applySubstitutions t
-  return (TList (Just t'))
+  return (TList t')
 
 typeOf :: Exp -> Type
 typeOf e = 
@@ -219,5 +264,5 @@ test3 = ELam [Ident "x", Ident "y", Ident "z"] (
     [PApp1 (EApp2 (Ident "y") [PApp2 (Ident "z")])])
 
 intList = EListConst1 [EInt 1]
-list = EListConst1 [] 
+list = EListConst1 []
 test4 = ELam [Ident "x"] (EIf (EApp2 (Ident "x") [PInt 1]) list intList)
