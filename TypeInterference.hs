@@ -1,17 +1,23 @@
-module TypeInterference where
+module TypeInterference2 where
 
 import BNFC.AbsLanguage
+import Control.Applicative
+import Control.Monad hiding (sequence)
 import Control.Monad.Reader hiding (sequence)
 import Control.Monad.Trans.Either
 import Control.Monad.Trans.State
-import Data.Map hiding (foldr)
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Monoid
 import Data.Set (Set)
-import Control.Applicative hiding (empty)
 import qualified Data.Set as Set
-import Prelude.Compat hiding (lookup)
-import Data.Monoid ((<>))
 import Prelude ()
-import Debug.Trace
+import Prelude.Compat
+
+-- import Debug.Trace
+
+-- traceM :: (Monad m) => String -> m ()
+-- traceM string = trace string $ return ()
 
 type Label = Int
 
@@ -24,11 +30,42 @@ data Type = TInt
   deriving (Eq, Show)
 
 data QType = Forall (Set Label) Type
+  deriving Show
 
-type IM = EitherT String (StateT (Label, Map Label Type) (Reader (Map Ident QType)))
+data Env = Env (Map Ident QType)
+  deriving Show
 
-traceM :: (Monad m) => String -> m ()
-traceM string = trace string $ return ()
+type IM = EitherT String (StateT (Label, Map Label Type) (Reader Env))
+
+
+class ContainingFreeVariables a where
+  freeVariables :: a -> IM (Set Label)
+
+freeVariables' (TVar l) = return $ Set.singleton l
+freeVariables' TInt = return $ Set.empty
+freeVariables' TBool = return $ Set.empty
+freeVariables' (t1 :-> t2) = do
+  ft1 <- freeVariables' t1
+  ft2 <- freeVariables' t2
+  return $ ft1 <> ft2
+freeVariables' (TList t) = freeVariables' t
+
+instance ContainingFreeVariables Type where
+  freeVariables t = do
+    t' <- applySubstitutionsM t
+    freeVariables' t'
+
+instance ContainingFreeVariables QType where
+  freeVariables (Forall vs t) = do 
+    ft <- freeVariables t
+    return $ ft Set.\\ vs
+
+instance ContainingFreeVariables Env where
+  freeVariables (Env env) = do
+    foldM (\acc qt -> do
+      fqt <- freeVariables qt
+      return $ acc <> fqt) Set.empty (Map.elems env)
+
 
 newLabel :: IM Type
 newLabel = do
@@ -46,248 +83,228 @@ setSubstitutions subs = do
   (x, _) <- lift get
   lift $ put (x, subs)
 
-getMaybeSubstitution :: Label -> IM (Maybe Type)
-getMaybeSubstitution l = do
-  subs <- getSubstitutions
-  return $ lookup l subs
-
-hasSubstitution :: Label -> IM Bool
-hasSubstitution l = do
-  subs <- getSubstitutions
-  return $ member l subs
-
 setSubstitution :: Label -> Type -> IM ()
-setSubstitution l t = do
-  subs <- getSubstitutions
-  setSubstitutions (insert l t subs)
-
-getSubstitution :: Label -> IM Type
-getSubstitution l = do
-  subs <- getSubstitutions
-  return $ subs ! l
+setSubstitution l t
+  | TVar l == t = return ()
+  | otherwise = do
+    subs <- getSubstitutions
+    let subs' = Map.insert l t subs
+        subs'' = Map.map (applySubstitutions subs') subs'
+    setSubstitutions subs''
 
 containsLabel :: Label -> Type -> IM Bool
 containsLabel _ TInt = return False
 containsLabel _ TBool = return False
-containsLabel l (from :-> to) = liftM2 (||) (containsLabel l from) (containsLabel l to)
-containsLabel l (TVar x) = do
-  if x == l then
-    return True
-  else do
-    mxt <- getMaybeSubstitution x
-    case mxt of
-      Just xt -> containsLabel l xt
-      Nothing -> return False
+containsLabel l (from :-> to) = (||) <$> containsLabel l from <*> containsLabel l to
+containsLabel l (TVar x)
+  | l == x = return True
+  | otherwise = return False
 containsLabel l (TList t) = containsLabel l t
 
-checkCycles :: IM ()
-checkCycles = do
+applySubstitutions :: (Map Label Type) -> Type -> Type
+applySubstitutions subs TInt = TInt
+applySubstitutions subs TBool = TBool
+applySubstitutions subs (from :-> to) = ((applySubstitutions subs from) :-> (applySubstitutions subs to))
+applySubstitutions subs (TVar x) =
+  case Map.lookup x subs of
+    Just xs -> xs
+    Nothing -> TVar x
+applySubstitutions subs (TList t) = TList (applySubstitutions subs t)
+
+applySubstitutionsM :: Type -> IM Type
+applySubstitutionsM t = do
   subs <- getSubstitutions
-  mapWithKey (\l sub -> containsLabel l sub) subs
+  return $ applySubstitutions subs t
 
-unificate :: Type -> Type -> IM ()
-unificate TInt TInt = do
-  traceM "sddd"
-  return ()
-unificate TBool TBool = do
-  traceM "----><><M"
-  return ()
-unificate (fromL :-> toL) (fromR :-> toR) = do
-  traceM "dsafasdfsf"
-  unificate fromL fromR
-  unificate toL toR
-unificate lt@(TVar l) rt@(TVar r) = do
-  traceM "dfasdfasdf"
-  ml <- hasSubstitution l
-  mr <- hasSubstitution r
-  if not ml then do
-    cond <- containsLabel l rt
-    if cond then error "Recursive type." else setSubstitution l rt
-  else if not mr then do
-    cond <- containsLabel r lt
-    if cond then error "Recursive type." else setSubstitution r lt
-  else do
-    lt' <- getSubstitution l
-    rt' <- getSubstitution r
-    unificate lt' rt'
-unificate lt@(TVar l) rt = do
-  traceM "1111111"
-  mlt <- getMaybeSubstitution l
-  case mlt of
-    Just lt' -> unificate lt' rt
-    Nothing -> setSubstitution l rt
-unificate lt rt@(TVar _) = do
-  traceM "asaaaaaa"
-  unificate rt lt
-unificate (TList lt) (TList rt) = do
-  traceM "dfasdfaf"
-  unificate lt rt
-unificate l r = error $ "Couldnt unificate type " ++ (show l) ++ " with " ++ (show r) ++ "."
+unificate' :: Type -> Type -> IM Type
+unificate' TInt TInt = return TInt
+unificate' TBool TBool = return TBool
+unificate' (fromL :-> toL) (fromR :-> toR) = do
+  fromU <- unificate' fromL fromR
+  toL' <- applySubstitutionsM toL
+  toR' <- applySubstitutionsM toR
+  toU <- unificate' toL' toR'
+  return $ fromU :-> toU
+unificate' (TVar l) rt = do
+  cond <- containsLabel l rt
+  if cond
+    then error $ "Found recursive type."
+    else do
+      setSubstitution l rt
+      return rt
+unificate' lt (TVar r) = do
+  cond <- containsLabel r lt
+  if cond
+    then error $ "Found recursive type."
+    else do
+      setSubstitution r lt
+      return lt
+unificate' (TList lt) (TList rt) = do
+  ut <- unificate' lt rt
+  return (TList ut)
+unificate' l r = error $ "Couldnt unificate type " ++ (show l) ++ " with " ++ (show r) ++ "."
 
-typeOf'BB e = do
-  et <- typeOf' e
-  unificate et TBool
-  return TBool
-typeOf'abc a b c e1 e2 = do
-  e1t <- typeOf' e1
-  e2t <- typeOf' e2
-  unificate e1t a
-  unificate e2t b
-  return c
-typeOf'BBB e1 e2 = typeOf'abc TBool TBool TBool e1 e2
-typeOf'IIB e1 e2 = typeOf'abc TInt TInt TBool e1 e2
-typeOf'III e1 e2 = typeOf'abc TInt TInt TInt e1 e2
-
-typeOfParam' :: Param -> IM Type
-typeOfParam' (PInt x) = typeOf' (EInt x)
-typeOfParam' (PApp1 e) = typeOf' (EApp1 e [])
-typeOfParam' (PApp2 e) = typeOf' (EApp2 e [])
-typeOfParam' (PListConst1 l) = typeOf' (EListConst1 l)
-
-typeFreeVars :: Type -> IM (Set Label)
-typeFreeVars (TVar l)    = do
-  s <- getMaybeSubstitution l
-  case s of    
-    Nothing -> return (Set.singleton l)
-    Just t -> typeFreeVars t
-typeFreeVars TInt = return Set.empty
-typeFreeVars TBool = return Set.empty
-typeFreeVars (t1 :-> t2) = do
-  l1 <- typeFreeVars t1
-  l2 <- typeFreeVars t2
-  return (l1 <> l2)
-typeFreeVars (TList t) = typeFreeVars t
-
-envFreeVars :: IM (Set Label)
-envFreeVars = do
-  env <- ask :: IM (Map Ident QType)
-  foldM (\acc (Forall vars t) -> do
-    fvars <- typeFreeVars t :: IM (Set Label)
-    return $ acc <> (fvars Set.\\ vars)) Set.empty (elems env)
+unificate :: Type -> Type -> IM Type
+unificate t1 t2 = do
+  et1 <- applySubstitutionsM t1
+  et2 <- applySubstitutionsM t2
+  unificate' et1 et2
 
 generalize :: Type -> IM QType
 generalize t = do
-  tfv <- typeFreeVars t
-  efv <- envFreeVars
-  return (Forall (tfv Set.\\ efv) t)
+  e <- ask
+  tfv <- freeVariables t
+  efv <- freeVariables e
+  return $ Forall (tfv Set.\\ efv) t
 
 instantiate :: QType -> IM Type
-instantiate (Forall v t) = do
-    traceM "l-l"
-    labels <- sequence $ fromSet (const newLabel) v
-    let go' x = traceM "go'" >> go x
-        go (TVar l)  
-          | Set.member l v = return (labels ! l)
-          | otherwise = do
-            mt' <- getMaybeSubstitution l
-            case mt' of
-              Nothing -> return (TVar l)
-              Just t' -> go' t'
-        go (TList t') = TList <$> go' t'
-        go (t1 :-> t2) = (:->) <$> go' t1 <*> go' t2
-        go x = return x
-    go' t     
+instantiate (Forall vs t) = do
+  -- env <- ask
+  -- subs <- getSubstitutions
+  -- traceM ("INST0: " ++ show env ++ " " ++ show subs)
+  -- traceM ("INST1: " ++ show vs ++ " " ++ show t)
+  t' <- applySubstitutionsM t
+  subs <- sequence $ Map.fromSet (const newLabel) vs
+  return $ applySubstitutions subs t'
 
-typeOf' :: Exp -> IM Type
--- Exp
-typeOf' (ELet x params body e) = do
-  xt <- newLabel
-  bodyt <- local (insert x (Forall Set.empty xt)) (typeOf' (ELam params body))
-  unificate xt bodyt
-  gxt <- generalize xt
-  local (insert x gxt) (typeOf' e)
-typeOf' (EIf e1 e2 e3) = do
-  e1t <- typeOf' e1
-  e2t <- typeOf' e2
-  e3t <- typeOf' e3
-  unificate e1t TBool
-  unificate e2t e3t
-  return e2t
-typeOf' (ELam [] e) = do
-  traceM "fff"
-  typeOf' e
-typeOf' (ELam (param:params) e) = do
-  traceM "ooo"
-  paramt <- newLabel
-  et <- local (insert param (Forall Set.empty paramt)) (typeOf' (ELam params e))
-  return (paramt :-> et)
--- Exp1
-typeOf' (ENot e) = typeOf'BB e
-typeOf' (EAnd e1 e2) = typeOf'BBB e1 e2
-typeOf' (EOr e1 e2) = typeOf'BBB e1 e2
-typeOf' (EEq e1 e2) = typeOf'IIB e1 e2
-typeOf' (ENeq e1 e2) = typeOf'IIB e1 e2
-typeOf' (ELeq e1 e2) = typeOf'IIB e1 e2
-typeOf' (EGeq e1 e2) = typeOf'IIB e1 e2
-typeOf' (ELt e1 e2) = typeOf'IIB e1 e2
-typeOf' (EGt e1 e2) = typeOf'IIB e1 e2
--- Exp2
-typeOf' (EPlus e1 e2) = typeOf'III e1 e2
-typeOf' (EMinus e1 e2) = typeOf'III e1 e2
--- Exp3
-typeOf' (ETimes e1 e2) = typeOf'III e1 e2
-typeOf' (EObelus e1 e2) = typeOf'III e1 e2
--- Exp4
-typeOf' (EInt _) = return TInt
-typeOf' (EApp1 f params) = do
-  ft <- typeOf' f
-  foldM (\acc param -> do
-    paramt <- typeOfParam' param
-    ot <- newLabel
-    unificate acc (paramt :-> ot)
-    return ot) ft params
-typeOf' (EApp2 f params) = do
-  traceM "dupa"
-  fqt <- asks (! f)
-  ft <- instantiate fqt
-  foldM (\acc param -> do
-    traceM "asd"
-    paramt <- typeOfParam' param
-    ot <- newLabel
-    unificate acc (paramt :-> ot)
-    return ot) ft params
-typeOf' (EListConst1 elems) = do
-  t <- newLabel
-  foldM (\acc elem -> do
-    elemt <- typeOf' elem
-    unificate acc (TList elemt)
-    return acc) (TList t) elems
-typeOf' (EListConst2 p1 p2) = do
-  p1t <- typeOfParam' p1
-  p2t <- typeOfParam' p2
-  t <- newLabel
-  unificate p2t (TList t)
-  unificate (TList p1t) p2t
-  return (TList p1t)
+class Typeable a where
+  typeOf :: a -> IM Type
 
-applySubstitutions :: Type -> IM Type
-applySubstitutions TInt = return TInt
-applySubstitutions TBool = return TBool
-applySubstitutions (from :-> to) = liftM2 (:->) (applySubstitutions from) (applySubstitutions to)
-applySubstitutions xt@(TVar x) = do
-  traceM "liisdl"
-  mxt <- getMaybeSubstitution x
-  case mxt of
-    Just xt' -> applySubstitutions xt'
-    Nothing -> return xt
-applySubstitutions (TList t) = do
-  traceM "DSsdF"
-  t' <- applySubstitutions t
-  return (TList t')
+instance Typeable Param where
+  typeOf (PInt x) = typeOf (EInt x)
+  typeOf (PApp1 e) = typeOf (EApp1 e [])
+  typeOf (PApp2 e) = typeOf (EApp2 e [])
+  typeOf (PListConst1 l) = typeOf (EListConst1 l)
 
-typeOf :: Exp -> Type
-typeOf e = 
-  case runReader (runStateT (runEitherT (typeOf' e)) (0, empty)) empty of
+emptyQType :: Type -> QType
+emptyQType t = Forall Set.empty t
+
+envInsert :: Ident -> QType -> Env -> Env
+envInsert x qt (Env e) = Env (Map.insert x qt e)
+
+envGet :: Ident -> Env -> QType
+envGet i (Env e) = e Map.! i
+
+typeOfBB e = do
+  et <- typeOf e
+  unificate et TBool
+  return TBool
+typeOfABC a b c e1 e2 = do
+  e1t <- typeOf e1
+  e2t <- typeOf e2
+  unificate e1t a
+  unificate e2t b
+  return c
+typeOfBBB e1 e2 = typeOfABC TBool TBool TBool e1 e2
+typeOfIIB e1 e2 = typeOfABC TInt TInt TBool e1 e2
+typeOfIII e1 e2 = typeOfABC TInt TInt TInt e1 e2
+
+-- -> rozw
+instance Typeable Exp where
+  -- Exp
+  typeOf (ELet x params body e) = do
+    xt <- newLabel
+    -- env <- ask
+    -- subs <- getSubstitutions
+    -- traceM ("ELET0: " ++ show env ++ " | " ++ show subs)
+    -- traceM ("ELET0.1: " ++ show e)
+    -- traceM ("ELET1: " ++ show xt)
+    bodyt <- local (envInsert x (emptyQType xt)) (typeOf (ELam params body))
+    -- subs <- getSubstitutions
+    -- traceM ("ELET2: " ++ show bodyt ++ " |  " ++ show subs)
+    unificate xt bodyt
+    gxt <- generalize xt
+    -- subs <- getSubstitutions
+    -- traceM ("ELET3: " ++ show gxt ++ " | " ++ show subs)
+    local (envInsert x gxt) (typeOf e)
+  typeOf (EIf e1 e2 e3) = do
+    e1t <- typeOf e1
+    e2t <- typeOf e2
+    e3t <- typeOf e3
+    unificate e1t TBool
+    unificate e2t e3t
+  typeOf (ELam [] e) = -- do
+    -- env <- ask
+    -- subs <- getSubstitutions
+    -- traceM ("ELAM[]0: " ++ show env ++ " " ++ show subs)
+    -- traceM ("ELAM[]1: " ++ show e)
+    typeOf e
+  typeOf (ELam (param:params) e) = do
+    paramt <- newLabel
+    -- env <- ask
+    -- subs <- getSubstitutions    
+    -- traceM ("ELAM[..]0: " ++ show env ++ " " ++ show subs)
+    -- traceM ("ELAM[..]1: " ++ show e)
+    et <- local (envInsert param (emptyQType paramt)) (typeOf (ELam params e))
+    applySubstitutionsM (paramt :-> et)
+  -- Exp1
+  typeOf (ENot e) = typeOfBB e
+  typeOf (EAnd e1 e2) = typeOfBBB e1 e2
+  typeOf (EOr e1 e2) = typeOfBBB e1 e2
+  typeOf (EEq e1 e2) = typeOfIIB e1 e2
+  typeOf (ENeq e1 e2) = typeOfIIB e1 e2
+  typeOf (ELeq e1 e2) = typeOfIIB e1 e2
+  typeOf (EGeq e1 e2) = typeOfIIB e1 e2
+  typeOf (ELt e1 e2) = typeOfIIB e1 e2
+  typeOf (EGt e1 e2) = typeOfIIB e1 e2
+  -- Exp2
+  typeOf (EPlus e1 e2) = typeOfIII e1 e2
+  typeOf (EMinus e1 e2) = typeOfIII e1 e2
+  -- Exp3
+  typeOf (ETimes e1 e2) = typeOfIII e1 e2
+  typeOf (EObelus e1 e2) = typeOfIII e1 e2
+  -- Exp4
+  typeOf (EInt _) = return TInt
+  typeOf (EApp1 f params) = do
+    ft <- typeOf f
+    foldM (\acc param -> do
+      paramt <- typeOf param
+      ot <- newLabel
+      unificate acc (paramt :-> ot)
+      return ot) ft params
+  typeOf (EApp2 f params) = do
+    fqt <- asks (envGet f)
+    -- subs <- getSubstitutions
+    -- env <- ask
+    -- traceM ("EAPP[]0: " ++ show env ++ " " ++ show subs)
+    -- traceM ("EAPP[]1: " ++ show f ++ " " ++ show params)
+    ft <- instantiate fqt
+    -- traceM ("EAPP[]2: " ++ show ft)
+    foldM (\acc param -> do
+      paramt <- typeOf param
+      ot <- newLabel
+      unificate acc (paramt :-> ot)
+      return ot) ft params
+  typeOf (EListConst1 elems) = do
+    t <- newLabel
+    foldM (\acc elem -> do
+      elemt <- typeOf elem
+      unificate acc (TList elemt)
+      return acc) (TList t) elems
+  typeOf (EListConst2 p1 p2) = do
+    p1t <- typeOf p1
+    p2t <- typeOf p2
+    t <- newLabel
+    unificate p2t (TList t)
+    unificate (TList p1t) p2t
+    return (TList p1t)
+
+checkType :: Exp -> Type
+checkType e = 
+  case runReader (runStateT (runEitherT (typeOf e)) (0, Map.empty)) (Env Map.empty) of
+    (Left msg, (l, subs)) -> error msg
+    (Right t, (l, subs)) -> applySubstitutions subs t
+
+checkType2 e = 
+  case runReader (runStateT (runEitherT (typeOf e)) (0, Map.empty)) (Env Map.empty) of
+    (Left msg, (l, subs)) -> error msg
+    (Right t, (l, subs)) -> (t, l, subs, applySubstitutions subs t)
+{-checkType2 e = 
+  case runReader (runStateT (runEitherT (typeOf e)) (0, empty)) empty of
     (Left msg, (l, subs)) -> error msg
     (Right t, (l, subs)) -> 
       let (Right t', _) = runReader (runStateT (runEitherT (applySubstitutions t)) (l, subs)) empty
-      in t'
-typeOf2 e = 
-  case runReader (runStateT (runEitherT (typeOf' e)) (0, empty)) empty of
-    (Left msg, (l, subs)) -> error msg
-    (Right t, (l, subs)) -> 
-      let (Right t', _) = runReader (runStateT (runEitherT (applySubstitutions t)) (l, subs)) empty
-      in (t, l, subs, t')
+      in (t, l, subs, t')-}
 
 test1 = ELam [Ident "x"] (EApp2 (Ident "x") [])
 test2 = ELam [Ident "x", Ident "y"] (EApp2 (Ident "x") [])
@@ -298,11 +315,15 @@ test3 = ELam [Ident "x", Ident "y", Ident "z"] (
 intList = EListConst1 [EInt 1]
 list = EListConst1 []
 test4 = ELam [Ident "x"] (EIf (EApp2 (Ident "x") [PInt 1]) list intList)
-test5 = ELet (Ident "id") [(Ident "x")] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 5])
+test5 = ELet (Ident "id") [(Ident "x")] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 6]) -- let id x = x in id id 5
+test5_1 = ELet (Ident "id") [(Ident "x")] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id")]) -- let id x = x in id id
+
+-- let id x = x in id
 test6 = ELet (Ident "id") [(Ident "x")] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [])
+-- (\id -> id id 5) (x x) // fail
 test7 = EApp1 (ELam [Ident "id"] (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 5]))
               [PApp1 (ELam [Ident "x"] (EApp2 (Ident "x") []))]
+-- (\id -> id id 5) // fail
 test8 = ELam [Ident "id"] (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 5])
+-- (\id -> id 5)
 test9 = ELam [Ident "id"] (EApp2 (Ident "id") [PInt 5])
--- s = let id x = x in (id id) 2
--- \id -> id id 5
