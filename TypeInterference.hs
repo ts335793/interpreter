@@ -14,10 +14,10 @@ import qualified Data.Set as Set
 import Prelude ()
 import Prelude.Compat
 
--- import Debug.Trace
+import Debug.Trace
 
--- traceM :: (Monad m) => String -> m ()
--- traceM string = trace string $ return ()
+traceM :: (Monad m) => String -> m ()
+traceM string = trace string $ return ()
 
 type Label = Int
 
@@ -123,8 +123,16 @@ unificate' (fromL :-> toL) (fromR :-> toR) = do
   fromU <- unificate' fromL fromR
   toL' <- applySubstitutionsM toL
   toR' <- applySubstitutionsM toR
+  traceM $ "UNIFICATE'0: " ++ show fromU
+  traceM $ "UNIFICATE'1: " ++ show toL'
+  traceM $ "UNIFICATE'2: " ++ show toR' 
   toU <- unificate' toL' toR'
   return $ fromU :-> toU
+unificate' (TVar l) (TVar r)
+  | l == r = return (TVar l)
+  | otherwise = do
+    setSubstitution l (TVar r)
+    return (TVar r)
 unificate' (TVar l) rt = do
   cond <- containsLabel l rt
   if cond
@@ -132,13 +140,7 @@ unificate' (TVar l) rt = do
     else do
       setSubstitution l rt
       return rt
-unificate' lt (TVar r) = do
-  cond <- containsLabel r lt
-  if cond
-    then error $ "Found recursive type."
-    else do
-      setSubstitution r lt
-      return lt
+unificate' lt (TVar r) = unificate' (TVar r) lt
 unificate' (TList lt) (TList rt) = do
   ut <- unificate' lt rt
   return (TList ut)
@@ -148,6 +150,8 @@ unificate :: Type -> Type -> IM Type
 unificate t1 t2 = do
   et1 <- applySubstitutionsM t1
   et2 <- applySubstitutionsM t2
+  traceM $ "UNIFICATE0 " ++ show et1
+  traceM $ "UNIFICATE1 " ++ show et2
   unificate' et1 et2
 
 generalize :: Type -> IM QType
@@ -221,6 +225,13 @@ instance Typeable Exp where
     e1t <- typeOf e1
     e2t <- typeOf e2
     e3t <- typeOf e3
+    env <- ask
+    subs <- getSubstitutions
+    traceM ("IF0: " ++ show env ++ " | " ++ show subs)
+    traceM ("IF1: " ++ show e1t)
+    traceM ("IF2: " ++ show e2t)
+    traceM ("IF3: " ++ show e3t)
+    -- traceM ("ELET1: " ++ show xt)
     unificate e1t TBool
     unificate e2t e3t
   typeOf (ELam [] e) = -- do
@@ -255,6 +266,8 @@ instance Typeable Exp where
   typeOf (EObelus e1 e2) = typeOfIII e1 e2
   -- Exp4
   typeOf (EInt _) = return TInt
+  typeOf EBoolTrue = return TBool
+  typeOf EBoolFalse = return TBool
   typeOf (EApp1 f params) = do
     ft <- typeOf f
     foldM (\acc param -> do
@@ -264,12 +277,12 @@ instance Typeable Exp where
       return ot) ft params
   typeOf (EApp2 f params) = do
     fqt <- asks (envGet f)
-    -- subs <- getSubstitutions
-    -- env <- ask
-    -- traceM ("EAPP[]0: " ++ show env ++ " " ++ show subs)
-    -- traceM ("EAPP[]1: " ++ show f ++ " " ++ show params)
+    subs <- getSubstitutions
+    env <- ask
+    traceM ("EAPP2.0: " ++ show env ++ " " ++ show subs)
+    traceM ("EAPP2.1: " ++ show f ++ " " ++ show params)
     ft <- instantiate fqt
-    -- traceM ("EAPP[]2: " ++ show ft)
+    traceM ("EAPP2.2: " ++ show ft)
     foldM (\acc param -> do
       paramt <- typeOf param
       ot <- newLabel
@@ -289,9 +302,15 @@ instance Typeable Exp where
     unificate (TList p1t) p2t
     return (TList p1t)
 
+builtInFunctions = [
+    (Ident "empty", Forall (Set.singleton (-1)) ((TList (TVar (-1))) :-> TBool)),
+    (Ident "head", Forall (Set.singleton (-2)) ((TList (TVar (-2))) :-> (TVar (-2)))),
+    (Ident "tail", Forall (Set.singleton (-3)) ((TList (TVar (-3))) :-> (TList (TVar (-3)))))
+  ]
+
 runTypeOf :: Exp -> Either String Type
 runTypeOf e = 
-  case runReader (runStateT (runEitherT (typeOf e)) (0, Map.empty)) (Env Map.empty) of
+  case runReader (runStateT (runEitherT (typeOf e)) (0, Map.empty)) (Env (Map.fromList builtInFunctions)) of
     (Left msg, (l, subs)) -> error msg
     (Right t, (l, subs)) -> return $ applySubstitutions subs t
 
@@ -326,4 +345,7 @@ test10 =
   let id x = x in
   let b x = if x then x else x in
   [id, b]
-  
+
+test11 = EApp1 (ELam [Ident "x"] (EApp2 (Ident "x") [])) []
+test12 = EIf EBoolTrue (EApp1 (ELam [Ident "x"] (EApp2 (Ident "x") [])) []) (EApp1 (ELam [Ident "x"] (EApp2 (Ident "x") [])) [])
+

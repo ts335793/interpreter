@@ -1,0 +1,6 @@
+// empty, head tail
+
+if True then 
+  (\ x -> x)
+else
+  (\ x -> x)

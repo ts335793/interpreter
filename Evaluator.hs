@@ -109,7 +109,13 @@ instance Evaluable Exp where
     VList paramsv <- eval params
     return $ VList (paramv:paramsv)
 
+builtInFunctions = [
+    (Ident "empty", VLam (\(VList l) -> if null l then return $ VBool True else return $ VBool False)),
+    (Ident "head", VLam (\(VList (h:_)) -> return h)),
+    (Ident "tail", VLam (\(VList (_:t)) -> return $ VList t))
+  ]
+
 runEval :: (Evaluable e) => e -> Either String Value
-runEval e = runReader (runEitherT (eval e)) Map.empty
+runEval e = runReader (runEitherT (eval e)) (Map.fromList builtInFunctions)
 
 test1 = ELet (Ident "id") [Ident "x"] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id"),PInt 5])
