@@ -14,7 +14,7 @@ traceM string = trace string $ return ()
 
 data Value = VInt Integer
            | VBool Bool
-           | VLam (Value -> EitherT String (Reader Env) Value)
+           | VLam (Value -> EitherT String (Reader Env) Value) Env
            | VList [Value]
 
 type Env = Map Ident Value
@@ -23,7 +23,7 @@ type IM = EitherT String (Reader Env)
 instance Show Value where
   show (VInt x) = show x
   show (VBool x) = show x
-  show (VLam x) = "lambda"
+  show (VLam x e) = "lambda"
   show (VList xs) = show xs
 
 class Evaluable a where
@@ -67,8 +67,13 @@ instance Evaluable Exp where
       then eval e2
       else eval e3
   eval (ELam [] e) = eval e
-  eval (ELam (param:params) e) =
-    return $ VLam (\v -> local (Map.insert param v) (eval (ELam params e)))
+  eval (ELam (param:params) e) = do
+    env <- ask
+    return $ VLam (\v -> do
+      env <- ask
+      -- traceM $ "VLam0 " ++ show env
+      -- traceM $ "VLam1 " ++ show param ++ " = " ++ show v
+      local (Map.insert param v) (eval (ELam params e))) env
   eval (ENot e) = do 
     VBool b <- eval e
     return $ VBool (not b)
@@ -93,14 +98,14 @@ instance Evaluable Exp where
   eval EBoolFalse = return $ VBool False
   eval (EApp1 e params) = do
     ev <- eval e
-    foldM (\(VLam f) param -> do
+    foldM (\(VLam f env) param -> do
       paramv <- eval param
-      f paramv) ev params
+      local (const env) (f paramv)) ev params
   eval (EApp2 e params) = do
     ev <- asks (Map.! e)
-    foldM (\(VLam f) param -> do
+    foldM (\(VLam f env) param -> do
       paramv <- eval param
-      f paramv) ev params
+      local (const env) (f paramv)) ev params
   eval (EListConst1 es) = do
     ese <- mapM (eval) es
     return $ VList ese
@@ -110,12 +115,14 @@ instance Evaluable Exp where
     return $ VList (paramv:paramsv)
 
 builtInFunctions = [
-    (Ident "empty", VLam (\(VList l) -> if null l then return $ VBool True else return $ VBool False)),
-    (Ident "head", VLam (\(VList (h:_)) -> return h)),
-    (Ident "tail", VLam (\(VList (_:t)) -> return $ VList t))
+    (Ident "empty", VLam (\(VList l) -> if null l then return $ VBool True else return $ VBool False) Map.empty),
+    (Ident "head", VLam (\(VList (h:_)) -> return h) Map.empty),
+    (Ident "tail", VLam (\(VList (_:t)) -> return $ VList t) Map.empty)
   ]
 
 runEval :: (Evaluable e) => e -> Either String Value
 runEval e = runReader (runEitherT (eval e)) (Map.fromList builtInFunctions)
 
 test1 = ELet (Ident "id") [Ident "x"] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id"),PInt 5])
+
+test2 = ELet (Ident "nwd") [Ident "a",Ident "b"] (EIf (ELt (EApp2 (Ident "a") []) (EApp2 (Ident "b") [])) (EApp2 (Ident "nwd") [PApp2 (Ident "a"),PApp1 (EMinus (EApp2 (Ident "b") []) (EApp2 (Ident "a") []))]) (EIf (EGt (EApp2 (Ident "a") []) (EApp2 (Ident "b") [])) (EApp2 (Ident "nwd") [PApp2 (Ident "b"),PApp2 (Ident "a")]) (EApp2 (Ident "a") []))) (EApp2 (Ident "nwd") [PInt 10,PInt 13])

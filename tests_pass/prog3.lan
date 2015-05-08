@@ -1,4 +1,4 @@
-// empty, head tail
+// empty
 
 let list1 = [1,2,3] in
 let list2 = [1] in

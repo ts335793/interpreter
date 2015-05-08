@@ -123,9 +123,9 @@ unificate' (fromL :-> toL) (fromR :-> toR) = do
   fromU <- unificate' fromL fromR
   toL' <- applySubstitutionsM toL
   toR' <- applySubstitutionsM toR
-  traceM $ "UNIFICATE'0: " ++ show fromU
-  traceM $ "UNIFICATE'1: " ++ show toL'
-  traceM $ "UNIFICATE'2: " ++ show toR' 
+  -- traceM $ "UNIFICATE'0: " ++ show fromU
+  -- traceM $ "UNIFICATE'1: " ++ show toL'
+  -- traceM $ "UNIFICATE'2: " ++ show toR' 
   toU <- unificate' toL' toR'
   return $ fromU :-> toU
 unificate' (TVar l) (TVar r)
@@ -150,8 +150,8 @@ unificate :: Type -> Type -> IM Type
 unificate t1 t2 = do
   et1 <- applySubstitutionsM t1
   et2 <- applySubstitutionsM t2
-  traceM $ "UNIFICATE0 " ++ show et1
-  traceM $ "UNIFICATE1 " ++ show et2
+  -- traceM $ "UNIFICATE0 " ++ show et1
+  -- traceM $ "UNIFICATE1 " ++ show et2
   unificate' et1 et2
 
 generalize :: Type -> IM QType
@@ -225,12 +225,12 @@ instance Typeable Exp where
     e1t <- typeOf e1
     e2t <- typeOf e2
     e3t <- typeOf e3
-    env <- ask
-    subs <- getSubstitutions
-    traceM ("IF0: " ++ show env ++ " | " ++ show subs)
-    traceM ("IF1: " ++ show e1t)
-    traceM ("IF2: " ++ show e2t)
-    traceM ("IF3: " ++ show e3t)
+    -- env <- ask
+    -- subs <- getSubstitutions
+    -- traceM ("IF0: " ++ show env ++ " | " ++ show subs)
+    -- traceM ("IF1: " ++ show e1t)
+    -- traceM ("IF2: " ++ show e2t)
+    -- traceM ("IF3: " ++ show e3t)
     -- traceM ("ELET1: " ++ show xt)
     unificate e1t TBool
     unificate e2t e3t
@@ -279,10 +279,10 @@ instance Typeable Exp where
     fqt <- asks (envGet f)
     subs <- getSubstitutions
     env <- ask
-    traceM ("EAPP2.0: " ++ show env ++ " " ++ show subs)
-    traceM ("EAPP2.1: " ++ show f ++ " " ++ show params)
+    -- traceM ("EAPP2.0: " ++ show env ++ " " ++ show subs)
+    -- traceM ("EAPP2.1: " ++ show f ++ " " ++ show params)
     ft <- instantiate fqt
-    traceM ("EAPP2.2: " ++ show ft)
+    -- traceM ("EAPP2.2: " ++ show ft)
     foldM (\acc param -> do
       paramt <- typeOf param
       ot <- newLabel
