@@ -4,7 +4,7 @@ import BNFC.AbsLanguage
 import Control.Applicative
 import Control.Monad hiding (sequence)
 import Control.Monad.Reader hiding (sequence)
-import Control.Monad.Trans.Either
+import Control.Monad.Error hiding (sequence)
 import Control.Monad.Trans.State
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -31,7 +31,7 @@ data QType = Forall (Set Label) Type
 data Env = Env (Map Ident QType)
   deriving Show
 
-type IM = EitherT String (StateT (Label, Map Label Type) (Reader Env))
+type IM = ErrorT String (StateT (Label, Map Label Type) (Reader Env))
 
 
 class ContainingFreeVariables a where
@@ -122,11 +122,11 @@ unificate' (TVar l) (TVar r)
 unificate' (TVar l) rt = do
   cond <- containsLabel l rt
   if cond
-    then error "Found recursive type."
+    then throwError "Found recursive type."
     else setSubstitution l rt
 unificate' lt (TVar r) = unificate' (TVar r) lt
 unificate' (TList lt) (TList rt) = unificate' lt rt
-unificate' l r = error $ "Couldnt unificate type " ++ show l ++ " with " ++ show r ++ "."
+unificate' l r = throwError $ "Couldnt unificate type " ++ show l ++ " with " ++ show r ++ "."
 
 unificate :: Type -> Type -> IM ()
 unificate t1 t2 = do
@@ -169,7 +169,7 @@ envGet i = do
   Env env <- ask
   case Map.lookup i env of
     Just qt -> return qt
-    Nothing -> error $ "Unknown identyfier " ++ show i ++ "."
+    Nothing -> throwError $ "Unknown identyfier " ++ show i ++ "."
 
 typeOfBB e = do
   et <- typeOf e
@@ -266,6 +266,6 @@ builtInFunctions = [
 
 runTypeOf :: Exp -> Either String Type
 runTypeOf e = 
-  case runReader (runStateT (runEitherT (typeOf e)) (0, Map.empty)) (Env (Map.fromList builtInFunctions)) of
-    (Left msg, (_, _)) -> error msg
+  case runReader (runStateT (runErrorT (typeOf e)) (0, Map.empty)) (Env (Map.fromList builtInFunctions)) of
+    (Left msg, (_, _)) -> Left msg
     (Right t, (_, subs)) -> return $ applySubstitutions subs t

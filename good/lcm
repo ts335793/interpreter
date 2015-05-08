@@ -1,0 +1,8 @@
+let gcd a b =
+  if a < b then
+    gcd a (b - a)
+  else if a > b then
+    gcd b a
+  else a in
+let lcm a b = (a * b) / (gcd a b) in
+lcm 10 13

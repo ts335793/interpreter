@@ -1,9 +1,0 @@
-// NWD
-
-let nwd a b =
-  if a < b then
-    nwd a (b - a)
-  else if a > b then
-    nwd b a
-  else a in
-nwd 10 13

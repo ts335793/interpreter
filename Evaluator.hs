@@ -3,17 +3,17 @@ module Evaluator where
 
 import BNFC.AbsLanguage
 import Control.Monad.Reader hiding (sequence)
-import Control.Monad.Trans.Either
+import Control.Monad.Error
 import Data.Map (Map)
 import qualified Data.Map as Map
 
 data Value = VInt Integer
            | VBool Bool
-           | VLam (Value -> EitherT String (Reader Env) Value) Env
+           | VLam (Value -> ErrorT String (Reader Env) Value) Env
            | VList [Value]
 
 type Env = Map Ident Value
-type IM = EitherT String (Reader Env)
+type IM = ErrorT String (Reader Env)
 
 instance Show Value where
   show (VInt x) = show x
@@ -22,7 +22,7 @@ instance Show Value where
   show (VList xs) = show xs
 
 class Evaluable a where
-  eval :: a -> EitherT String (Reader Env) Value
+  eval :: a -> ErrorT String (Reader Env) Value
 
 instance Evaluable (Exp, Exp, Bool -> Bool -> Bool) where
   eval (e1, e2, f) = do
@@ -79,7 +79,10 @@ instance Evaluable Exp where
   eval (EMinus e1 e2)  = eval (e1, e2, (-)   :: Integer -> Integer -> Integer)
   -- Exp3
   eval (ETimes e1 e2)  = eval (e1, e2, (*)   :: Integer -> Integer -> Integer)
-  eval (EObelus e1 e2) = eval (e1, e2, div   :: Integer -> Integer -> Integer)
+  eval (EObelus e1 e2) = do
+    VInt e1v <- eval e1
+    VInt e2v <- eval e2
+    if e2v == 0 then throwError "Divide by zero." else return $ VInt (div e1v e2v)
   -- Exp4
   eval (EInt i) = return $ VInt i
   eval (ENInt i) = return $ VInt (-i)
@@ -107,10 +110,10 @@ builtInFunctions :: [(Ident, Value)]
 builtInFunctions = [
     (Ident "empty", VLam (\(VList l) -> return $ VBool (null l)) Map.empty),
     (Ident "head", VLam (\(VList xs) -> 
-      if null xs then error "Empty list has no head." else return $ head xs) Map.empty),
+      if null xs then throwError "Empty list has no head." else return $ head xs) Map.empty),
     (Ident "tail", VLam (\(VList xs) ->
-      if null xs then error "Empty list has no tail." else return $ VList (tail xs)) Map.empty)
+      if null xs then throwError "Empty list has no tail." else return $ VList (tail xs)) Map.empty)
   ]
 
 runEval :: (Evaluable e) => e -> Either String Value
-runEval e = runReader (runEitherT (eval e)) (Map.fromList builtInFunctions)
+runEval e = runReader (runErrorT (eval e)) (Map.fromList builtInFunctions)

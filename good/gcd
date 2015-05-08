@@ -1,0 +1,7 @@
+let gcd a b =
+  if a < b then
+    gcd a (b - a)
+  else if a > b then
+    gcd b a
+  else a in
+gcd 10 13

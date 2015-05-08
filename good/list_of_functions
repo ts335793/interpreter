@@ -1,4 +1,3 @@
-// test list of functions
 let id x = x in
 let b x = if x then x else x in
 [id, b]

@@ -4,4 +4,5 @@ let foldl f acc l =
     else 
       let acc' = f acc (head l) in
       foldl f acc' (tail l) in
-foldl 
+let mul = foldl (\acc x -> x * acc) 1 in
+mul [1, 2, 3, 2, (-1)]
