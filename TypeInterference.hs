@@ -15,11 +15,6 @@ import qualified Data.Set as Set
 import Prelude ()
 import Prelude.Compat
 
---import Debug.Trace
-
---traceM :: (Monad m) => String -> m ()
---traceM string = trace string $ return ()
-
 type Label = Int
 
 infixr 5 :->
@@ -86,13 +81,11 @@ setSubstitutions subs = do
   lift $ put (x, subs)
 
 setSubstitution :: Label -> Type -> IM ()
-setSubstitution l t
-  | TVar l == t = return ()
-  | otherwise = do
-    subs <- getSubstitutions
-    let subs' = Map.insert l t subs
-        subs'' = Map.map (applySubstitutions subs') subs'
-    setSubstitutions subs''
+setSubstitution l t = do
+  subs <- getSubstitutions
+  let subs' = Map.insert l t subs
+      subs'' = Map.map (applySubstitutions subs') subs'
+  setSubstitutions subs''
 
 containsLabel :: Label -> Type -> IM Bool
 containsLabel _ TInt = return False
@@ -196,7 +189,7 @@ typeOfApplyArgumentsToFunction ft params =
     unificate acc (paramt :-> ot)
     return ot) ft params
 
--- -> rozw
+
 instance Typeable Exp where
   -- Exp
   typeOf (ELet x params body e) = do
@@ -259,6 +252,7 @@ instance Typeable Exp where
     unificate (TList p1t) p2t
     return (TList p1t)
 
+
 builtInFunctions :: [(Ident, QType)]
 builtInFunctions = [
     (Ident "empty", Forall (Set.singleton (-1)) (TList (TVar (-1)) :-> TBool)),
@@ -271,34 +265,3 @@ runTypeOf e =
   case runReader (runStateT (runEitherT (typeOf e)) (0, Map.empty)) (Env (Map.fromList builtInFunctions)) of
     (Left msg, (_, _)) -> error msg
     (Right t, (_, subs)) -> return $ applySubstitutions subs t
-
-{-checkType2 e =
-  case runReader (runStateT (runEitherT (typeOf e)) (0, Map.empty)) (Env Map.empty) of
-    (Left msg, (l, subs)) -> error msg
-    (Right t, (l, subs)) -> (t, l, subs, applySubstitutions subs t)
-
-test1 = ELam [Ident "x"] (EApp2 (Ident "x") [])
-test2 = ELam [Ident "x", Ident "y"] (EApp2 (Ident "x") [])
-test3 = ELam [Ident "x", Ident "y", Ident "z"] (
-  EApp1 (EApp2 (Ident "x") [PApp2 (Ident "z")])
-    [PApp1 (EApp2 (Ident "y") [PApp2 (Ident "z")])])
-
-intList = EListConst1 [EInt 1]
-list = EListConst1 []
-test4 = ELam [Ident "x"] (EIf (EApp2 (Ident "x") [PInt 1]) list intList)
-test5 = ELet (Ident "id") [Ident "x"] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 6]) -- let id x = x in id id 5
-test5_1 = ELet (Ident "id") [Ident "x"] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id")]) -- let id x = x in id id
-
--- let id x = x in id
-test6 = ELet (Ident "id") [Ident "x"] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [])
--- (\id -> id id 5) (x x) // fail
-test7 = EApp1 (ELam [Ident "id"] (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 5]))
-              [PApp1 (ELam [Ident "x"] (EApp2 (Ident "x") []))]
--- (\id -> id id 5) // fail
-test8 = ELam [Ident "id"] (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 5])
--- (\id -> id 5)
-test9 = ELam [Ident "id"] (EApp2 (Ident "id") [PInt 5])
-
-test11 = EApp1 (ELam [Ident "x"] (EApp2 (Ident "x") [])) []
-test12 = EIf EBoolTrue (EApp1 (ELam [Ident "x"] (EApp2 (Ident "x") [])) []) (EApp1 (ELam [Ident "x"] (EApp2 (Ident "x") [])) [])-}
-

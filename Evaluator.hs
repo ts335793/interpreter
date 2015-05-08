@@ -7,11 +7,6 @@ import Control.Monad.Trans.Either
 import Data.Map (Map)
 import qualified Data.Map as Map
 
-import Debug.Trace
-
-traceM :: (Monad m) => String -> m ()
-traceM string = trace string $ return ()
-
 data Value = VInt Integer
            | VBool Bool
            | VLam (Value -> EitherT String (Reader Env) Value) Env
@@ -117,7 +112,3 @@ builtInFunctions = [
 
 runEval :: (Evaluable e) => e -> Either String Value
 runEval e = runReader (runEitherT (eval e)) (Map.fromList builtInFunctions)
-
-{-test1 = ELet (Ident "id") [Ident "x"] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id"),PInt 5])
-
-test2 = ELet (Ident "nwd") [Ident "a",Ident "b"] (EIf (ELt (EApp2 (Ident "a") []) (EApp2 (Ident "b") [])) (EApp2 (Ident "nwd") [PApp2 (Ident "a"),PApp1 (EMinus (EApp2 (Ident "b") []) (EApp2 (Ident "a") []))]) (EIf (EGt (EApp2 (Ident "a") []) (EApp2 (Ident "b") [])) (EApp2 (Ident "nwd") [PApp2 (Ident "b"),PApp2 (Ident "a")]) (EApp2 (Ident "a") []))) (EApp2 (Ident "nwd") [PInt 10,PInt 13])-}

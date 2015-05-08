@@ -14,9 +14,6 @@ import TypeInterference
 
 type ParseFun a = [Token] -> Err a
 
-type Verbosity = Int
-
-
 runFile :: ParseFun Exp -> FilePath -> IO ()
 runFile p f = putStrLn f >> readFile f >>= run p
 
