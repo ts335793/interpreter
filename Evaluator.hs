@@ -23,25 +23,25 @@ type IM = EitherT String (Reader Env)
 instance Show Value where
   show (VInt x) = show x
   show (VBool x) = show x
-  show (VLam x e) = "lambda"
+  show (VLam _ _) = "lambda"
   show (VList xs) = show xs
 
 class Evaluable a where
   eval :: a -> EitherT String (Reader Env) Value
 
-instance Evaluable (Exp, Exp, (Bool -> Bool -> Bool)) where
+instance Evaluable (Exp, Exp, Bool -> Bool -> Bool) where
   eval (e1, e2, f) = do
     VBool e1v <- eval e1
     VBool e2v <- eval e2
     return $ VBool (f e1v e2v)
 
-instance (Evaluable (Exp, Exp, (Integer -> Integer -> Bool))) where
+instance (Evaluable (Exp, Exp, Integer -> Integer -> Bool)) where
   eval (e1, e2, f) = do
     VInt e1v <- eval e1
     VInt e2v <- eval e2
     return $ VBool (f e1v e2v)
 
-instance Evaluable (Exp, Exp, (Integer -> Integer -> Integer)) where
+instance Evaluable (Exp, Exp, Integer -> Integer -> Integer) where
   eval (e1, e2, f) = do
     VInt e1v <- eval e1
     VInt e2v <- eval e2
@@ -58,22 +58,15 @@ instance Evaluable Param where
 instance Evaluable Exp where
   -- Exp
   eval (ELet x params body e) = do
-    fp <- mfix (\f -> do
-      local (Map.insert x f) (eval (ELam params body)))
+    fp <- mfix (\f -> local (Map.insert x f) (eval (ELam params body)))
     local (Map.insert x fp) (eval e)
   eval (EIf e1 e2 e3) = do
     VBool cond <- eval e1
-    if cond
-      then eval e2
-      else eval e3
+    eval (if cond then e2 else e3)
   eval (ELam [] e) = eval e
   eval (ELam (param:params) e) = do
     env <- ask
-    return $ VLam (\v -> do
-      env <- ask
-      -- traceM $ "VLam0 " ++ show env
-      -- traceM $ "VLam1 " ++ show param ++ " = " ++ show v
-      local (Map.insert param v) (eval (ELam params e))) env
+    return $ VLam (\v -> local (Map.insert param v) (eval (ELam params e))) env
   eval (ENot e) = do 
     VBool b <- eval e
     return $ VBool (not b)
@@ -91,9 +84,10 @@ instance Evaluable Exp where
   eval (EMinus e1 e2)  = eval (e1, e2, (-)   :: Integer -> Integer -> Integer)
   -- Exp3
   eval (ETimes e1 e2)  = eval (e1, e2, (*)   :: Integer -> Integer -> Integer)
-  eval (EObelus e1 e2) = eval (e1, e2, (div) :: Integer -> Integer -> Integer)
+  eval (EObelus e1 e2) = eval (e1, e2, div   :: Integer -> Integer -> Integer)
   -- Exp4
   eval (EInt i) = return $ VInt i
+  eval (ENInt i) = return $ VInt (-i)
   eval EBoolTrue = return $ VBool True 
   eval EBoolFalse = return $ VBool False
   eval (EApp1 e params) = do
@@ -107,15 +101,16 @@ instance Evaluable Exp where
       paramv <- eval param
       local (const env) (f paramv)) ev params
   eval (EListConst1 es) = do
-    ese <- mapM (eval) es
+    ese <- mapM eval es
     return $ VList ese
   eval (EListConst2 param params) = do
     paramv <- eval param
     VList paramsv <- eval params
     return $ VList (paramv:paramsv)
 
+builtInFunctions :: [(Ident, Value)]
 builtInFunctions = [
-    (Ident "empty", VLam (\(VList l) -> if null l then return $ VBool True else return $ VBool False) Map.empty),
+    (Ident "empty", VLam (\(VList l) -> return $ VBool (null l)) Map.empty),
     (Ident "head", VLam (\(VList (h:_)) -> return h) Map.empty),
     (Ident "tail", VLam (\(VList (_:t)) -> return $ VList t) Map.empty)
   ]
@@ -123,6 +118,6 @@ builtInFunctions = [
 runEval :: (Evaluable e) => e -> Either String Value
 runEval e = runReader (runEitherT (eval e)) (Map.fromList builtInFunctions)
 
-test1 = ELet (Ident "id") [Ident "x"] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id"),PInt 5])
+{-test1 = ELet (Ident "id") [Ident "x"] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id"),PInt 5])
 
-test2 = ELet (Ident "nwd") [Ident "a",Ident "b"] (EIf (ELt (EApp2 (Ident "a") []) (EApp2 (Ident "b") [])) (EApp2 (Ident "nwd") [PApp2 (Ident "a"),PApp1 (EMinus (EApp2 (Ident "b") []) (EApp2 (Ident "a") []))]) (EIf (EGt (EApp2 (Ident "a") []) (EApp2 (Ident "b") [])) (EApp2 (Ident "nwd") [PApp2 (Ident "b"),PApp2 (Ident "a")]) (EApp2 (Ident "a") []))) (EApp2 (Ident "nwd") [PInt 10,PInt 13])
+test2 = ELet (Ident "nwd") [Ident "a",Ident "b"] (EIf (ELt (EApp2 (Ident "a") []) (EApp2 (Ident "b") [])) (EApp2 (Ident "nwd") [PApp2 (Ident "a"),PApp1 (EMinus (EApp2 (Ident "b") []) (EApp2 (Ident "a") []))]) (EIf (EGt (EApp2 (Ident "a") []) (EApp2 (Ident "b") [])) (EApp2 (Ident "nwd") [PApp2 (Ident "b"),PApp2 (Ident "a")]) (EApp2 (Ident "a") []))) (EApp2 (Ident "nwd") [PInt 10,PInt 13])-}
