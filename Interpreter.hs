@@ -58,11 +58,8 @@ instance Evaluable Param where
 instance Evaluable Exp where
   -- Exp
   eval (ELet x params body e) = do
-    traceM "aaaa"
-    fp <- fix (\f -> do
-      f' <- f
-      local (Map.insert x f') (eval (ELam params body)))
-    traceM "bbbb"
+    fp <- mfix (\f -> do
+      local (Map.insert x f) (eval (ELam params body)))
     local (Map.insert x fp) (eval e)
   eval (EIf e1 e2 e3) = do
     VBool cond <- eval e1
