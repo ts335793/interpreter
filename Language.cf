@@ -22,6 +22,8 @@ ETimes.  Exp3 ::= Exp3 "*" Exp4 ;
 EObelus. Exp3 ::= Exp3 "/" Exp4 ;
 
 EInt.        Exp4 ::= Integer ;
+EBoolTrue.   Exp4 ::= "True" ;
+EBoolFalse.  Exp4 ::= "False" ;
 EApp1.       Exp4 ::= "(" Exp ")" [Param] ;
 EApp2.       Exp4 ::= Ident [Param] ;
 EListConst1. Exp4 ::= "[" [Exp] "]" ;
@@ -33,6 +35,8 @@ _. Exp2 ::= Exp3 ;
 _. Exp3 ::= Exp4 ;
 
 PInt.       Param ::= Integer ;
+PBoolTrue.  Param ::= "True" ;
+PBoolFalse. Param ::= "False" ;
 PApp1.      Param ::= "(" Exp ")" ;
 PApp2.      Param ::= Ident ;
 PListConst1. Param ::= "[" [Exp] "]" ;

@@ -3,8 +3,8 @@
 let list1 = [1,2,3] in
 let list2 = [1] in
 if empty list1 then 
-  (\ x -> x)
-else if ! empty list2 then
-  (\ x -> x)
+  1
+else if !empty list2 then
+  2
 else
-  (\ x -> x)
+  3
