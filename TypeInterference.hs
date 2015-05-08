@@ -321,3 +321,9 @@ test7 = EApp1 (ELam [Ident "id"] (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 5
 test8 = ELam [Ident "id"] (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 5])
 -- (\id -> id 5)
 test9 = ELam [Ident "id"] (EApp2 (Ident "id") [PInt 5])
+
+test10 = 
+  let id x = x in
+  let b x = if x then x else x in
+  [id, b]
+  
