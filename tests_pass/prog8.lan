@@ -1,0 +1,10 @@
+let foldl f acc l =
+  if empty l
+    then acc
+    else 
+      let acc' = f acc (head l) in
+      foldl f acc' (tail l) in
+let mul = foldl (\acc x -> x * acc) 1 in
+mul [1, 2, 3, 2, (-1)]
+//let list = foldl sgn [] [1, 2, 3, 1, 2, 4] in
+//list

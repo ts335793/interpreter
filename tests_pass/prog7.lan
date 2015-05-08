@@ -1,0 +1,7 @@
+let foldl f acc l =
+  if empty l
+    then acc
+    else 
+      let acc' = f acc (head l) in
+      foldl f acc' (tail l) in
+foldl 
