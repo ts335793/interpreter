@@ -22,6 +22,7 @@ ETimes.  Exp3 ::= Exp3 "*" Exp4 ;
 EObelus. Exp3 ::= Exp3 "/" Exp4 ;
 
 EInt.        Exp4 ::= Integer ;
+ENInt.       Exp4 ::= "-" Integer ;
 EBoolTrue.   Exp4 ::= "True" ;
 EBoolFalse.  Exp4 ::= "False" ;
 EApp1.       Exp4 ::= "(" Exp ")" [Param] ;
