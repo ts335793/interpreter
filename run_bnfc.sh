@@ -1,3 +1,3 @@
 #!/bin/bash
 
-bnfc -p BNFC -m Language.cf
+bnfc -p BNFC Language.cf

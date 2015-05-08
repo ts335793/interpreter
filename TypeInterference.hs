@@ -164,8 +164,12 @@ emptyQType t = Forall Set.empty t
 envInsert :: Ident -> QType -> Env -> Env
 envInsert x qt (Env e) = Env (Map.insert x qt e)
 
-envGet :: Ident -> Env -> QType
-envGet i (Env e) = e Map.! i
+envGet :: Ident -> IM QType
+envGet i = do
+  Env env <- ask
+  case Map.lookup i env of
+    Just qt -> return qt
+    Nothing -> error $ "Unknown identyfier " ++ show i ++ "."
 
 typeOfBB e = do
   et <- typeOf e
@@ -235,7 +239,7 @@ instance Typeable Exp where
     ft <- typeOf f
     typeOfApplyArgumentsToFunction ft params
   typeOf (EApp2 f params) = do
-    fqt <- asks (envGet f)
+    fqt <- envGet f
     ft <- instantiate fqt
     typeOfApplyArgumentsToFunction ft params
   typeOf (EListConst1 elems) = do

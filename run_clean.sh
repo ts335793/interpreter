@@ -1,3 +1,4 @@
 #!/bin/bash
 
-git clean -f
+git clean -fd
+rm -r BNFC
