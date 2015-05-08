@@ -272,7 +272,7 @@ runTypeOf e =
     (Left msg, (_, _)) -> error msg
     (Right t, (_, subs)) -> return $ applySubstitutions subs t
 
-{-checkType2 e = 
+{-checkType2 e =
   case runReader (runStateT (runEitherT (typeOf e)) (0, Map.empty)) (Env Map.empty) of
     (Left msg, (l, subs)) -> error msg
     (Right t, (l, subs)) -> (t, l, subs, applySubstitutions subs t)

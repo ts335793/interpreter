@@ -1,1 +1,1 @@
-let f x = f x in 10
+let f x = f x in f 10
