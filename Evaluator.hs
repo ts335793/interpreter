@@ -106,8 +106,10 @@ instance Evaluable Exp where
 builtInFunctions :: [(Ident, Value)]
 builtInFunctions = [
     (Ident "empty", VLam (\(VList l) -> return $ VBool (null l)) Map.empty),
-    (Ident "head", VLam (\(VList (h:_)) -> return h) Map.empty),
-    (Ident "tail", VLam (\(VList (_:t)) -> return $ VList t) Map.empty)
+    (Ident "head", VLam (\(VList xs) -> 
+      if null xs then error "Empty list has no head." else return $ head xs) Map.empty),
+    (Ident "tail", VLam (\(VList xs) ->
+      if null xs then error "Empty list has no tail." else return $ VList (tail xs)) Map.empty)
   ]
 
 runEval :: (Evaluable e) => e -> Either String Value
