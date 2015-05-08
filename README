@@ -1,0 +1,24 @@
+Opis:
+=====
+
+Program spełnia wszystkie wymagania na 20 punktów, tj.:
+- ma dwa bazowe typy wartości: Bool i Int
+- zmienne
+- deklaracje lokalne let
+- deklaratywny if
+- arytmetyką i porównania na intach
+- nazwane funkcje wieloargumentowe z rekurencją
+- częściowa aplikacja i funkcje wyższego rzędu
+- listy polimorficzne z funkcjami wbudowanymi empty, head, tail
+- lukier syntaktyczny dla list - konstruktor (:) i [1,2,3]
+- statyczne wiązanie identyfikatorów
+
+Ponadto, z wymagań na 24 punkty zaimplementowałem interferencję typów.
+Implementując interferencję typów wzorowałem się na algorytmie Hindley-Milnera opisanym w dokumencie "Algorithm W Step By Step" Martina Grabmullera.
+
+Sposób uruchomienia:
+====================
+make
+./interpreter nazwa_pliku
+./run_all_bad.sh
+./run_all_good.sh
