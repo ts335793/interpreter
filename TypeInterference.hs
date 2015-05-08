@@ -8,16 +8,17 @@ import Control.Monad.Trans.Either
 import Control.Monad.Trans.State
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Maybe
 import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Prelude ()
 import Prelude.Compat
 
-import Debug.Trace
+--import Debug.Trace
 
-traceM :: (Monad m) => String -> m ()
-traceM string = trace string $ return ()
+--traceM :: (Monad m) => String -> m ()
+--traceM string = trace string $ return ()
 
 type Label = Int
 
@@ -41,9 +42,10 @@ type IM = EitherT String (StateT (Label, Map Label Type) (Reader Env))
 class ContainingFreeVariables a where
   freeVariables :: a -> IM (Set Label)
 
+freeVariables' :: Type -> IM (Set Label)
 freeVariables' (TVar l) = return $ Set.singleton l
-freeVariables' TInt = return $ Set.empty
-freeVariables' TBool = return $ Set.empty
+freeVariables' TInt = return Set.empty
+freeVariables' TBool = return Set.empty
 freeVariables' (t1 :-> t2) = do
   ft1 <- freeVariables' t1
   ft2 <- freeVariables' t2
@@ -61,7 +63,7 @@ instance ContainingFreeVariables QType where
     return $ ft Set.\\ vs
 
 instance ContainingFreeVariables Env where
-  freeVariables (Env env) = do
+  freeVariables (Env env) =
     foldM (\acc qt -> do
       fqt <- freeVariables qt
       return $ acc <> fqt) Set.empty (Map.elems env)
@@ -101,14 +103,11 @@ containsLabel l (TVar x)
   | otherwise = return False
 containsLabel l (TList t) = containsLabel l t
 
-applySubstitutions :: (Map Label Type) -> Type -> Type
-applySubstitutions subs TInt = TInt
-applySubstitutions subs TBool = TBool
-applySubstitutions subs (from :-> to) = ((applySubstitutions subs from) :-> (applySubstitutions subs to))
-applySubstitutions subs (TVar x) =
-  case Map.lookup x subs of
-    Just xs -> xs
-    Nothing -> TVar x
+applySubstitutions :: Map Label Type -> Type -> Type
+applySubstitutions _ TInt = TInt
+applySubstitutions _ TBool = TBool
+applySubstitutions subs (from :-> to) = applySubstitutions subs from :-> applySubstitutions subs to
+applySubstitutions subs (TVar x) = fromMaybe (TVar x) (Map.lookup x subs)
 applySubstitutions subs (TList t) = TList (applySubstitutions subs t)
 
 applySubstitutionsM :: Type -> IM Type
@@ -116,42 +115,30 @@ applySubstitutionsM t = do
   subs <- getSubstitutions
   return $ applySubstitutions subs t
 
-unificate' :: Type -> Type -> IM Type
-unificate' TInt TInt = return TInt
-unificate' TBool TBool = return TBool
+unificate' :: Type -> Type -> IM ()
+unificate' TInt TInt = return ()
+unificate' TBool TBool = return ()
 unificate' (fromL :-> toL) (fromR :-> toR) = do
-  fromU <- unificate' fromL fromR
+  unificate' fromL fromR
   toL' <- applySubstitutionsM toL
   toR' <- applySubstitutionsM toR
-  -- traceM $ "UNIFICATE'0: " ++ show fromU
-  -- traceM $ "UNIFICATE'1: " ++ show toL'
-  -- traceM $ "UNIFICATE'2: " ++ show toR' 
-  toU <- unificate' toL' toR'
-  return $ fromU :-> toU
+  unificate' toL' toR'
 unificate' (TVar l) (TVar r)
-  | l == r = return (TVar l)
-  | otherwise = do
-    setSubstitution l (TVar r)
-    return (TVar r)
+  | l == r = return ()
+  | otherwise = setSubstitution l (TVar r)
 unificate' (TVar l) rt = do
   cond <- containsLabel l rt
   if cond
-    then error $ "Found recursive type."
-    else do
-      setSubstitution l rt
-      return rt
+    then error "Found recursive type."
+    else setSubstitution l rt
 unificate' lt (TVar r) = unificate' (TVar r) lt
-unificate' (TList lt) (TList rt) = do
-  ut <- unificate' lt rt
-  return (TList ut)
-unificate' l r = error $ "Couldnt unificate type " ++ (show l) ++ " with " ++ (show r) ++ "."
+unificate' (TList lt) (TList rt) = unificate' lt rt
+unificate' l r = error $ "Couldnt unificate type " ++ show l ++ " with " ++ show r ++ "."
 
-unificate :: Type -> Type -> IM Type
+unificate :: Type -> Type -> IM ()
 unificate t1 t2 = do
   et1 <- applySubstitutionsM t1
   et2 <- applySubstitutionsM t2
-  -- traceM $ "UNIFICATE0 " ++ show et1
-  -- traceM $ "UNIFICATE1 " ++ show et2
   unificate' et1 et2
 
 generalize :: Type -> IM QType
@@ -163,10 +150,6 @@ generalize t = do
 
 instantiate :: QType -> IM Type
 instantiate (Forall vs t) = do
-  -- env <- ask
-  -- subs <- getSubstitutions
-  -- traceM ("INST0: " ++ show env ++ " " ++ show subs)
-  -- traceM ("INST1: " ++ show vs ++ " " ++ show t)
   t' <- applySubstitutionsM t
   subs <- sequence $ Map.fromSet (const newLabel) vs
   return $ applySubstitutions subs t'
@@ -176,6 +159,8 @@ class Typeable a where
 
 instance Typeable Param where
   typeOf (PInt x) = typeOf (EInt x)
+  typeOf PBoolTrue = typeOf EBoolTrue
+  typeOf PBoolFalse = typeOf EBoolFalse
   typeOf (PApp1 e) = typeOf (EApp1 e [])
   typeOf (PApp2 e) = typeOf (EApp2 e [])
   typeOf (PListConst1 l) = typeOf (EListConst1 l)
@@ -203,49 +188,33 @@ typeOfBBB e1 e2 = typeOfABC TBool TBool TBool e1 e2
 typeOfIIB e1 e2 = typeOfABC TInt TInt TBool e1 e2
 typeOfIII e1 e2 = typeOfABC TInt TInt TInt e1 e2
 
+typeOfApplyArgumentsToFunction :: Type -> [Param] -> IM Type
+typeOfApplyArgumentsToFunction ft params =
+  foldM (\acc param -> do
+    paramt <- typeOf param
+    ot <- newLabel
+    unificate acc (paramt :-> ot)
+    return ot) ft params
+
 -- -> rozw
 instance Typeable Exp where
   -- Exp
   typeOf (ELet x params body e) = do
     xt <- newLabel
-    -- env <- ask
-    -- subs <- getSubstitutions
-    -- traceM ("ELET0: " ++ show env ++ " | " ++ show subs)
-    -- traceM ("ELET0.1: " ++ show e)
-    -- traceM ("ELET1: " ++ show xt)
     bodyt <- local (envInsert x (emptyQType xt)) (typeOf (ELam params body))
-    -- subs <- getSubstitutions
-    -- traceM ("ELET2: " ++ show bodyt ++ " |  " ++ show subs)
     unificate xt bodyt
     gxt <- generalize xt
-    -- subs <- getSubstitutions
-    -- traceM ("ELET3: " ++ show gxt ++ " | " ++ show subs)
     local (envInsert x gxt) (typeOf e)
   typeOf (EIf e1 e2 e3) = do
     e1t <- typeOf e1
     e2t <- typeOf e2
     e3t <- typeOf e3
-    -- env <- ask
-    -- subs <- getSubstitutions
-    -- traceM ("IF0: " ++ show env ++ " | " ++ show subs)
-    -- traceM ("IF1: " ++ show e1t)
-    -- traceM ("IF2: " ++ show e2t)
-    -- traceM ("IF3: " ++ show e3t)
-    -- traceM ("ELET1: " ++ show xt)
     unificate e1t TBool
     unificate e2t e3t
-  typeOf (ELam [] e) = -- do
-    -- env <- ask
-    -- subs <- getSubstitutions
-    -- traceM ("ELAM[]0: " ++ show env ++ " " ++ show subs)
-    -- traceM ("ELAM[]1: " ++ show e)
-    typeOf e
+    return e2t
+  typeOf (ELam [] e) = typeOf e
   typeOf (ELam (param:params) e) = do
     paramt <- newLabel
-    -- env <- ask
-    -- subs <- getSubstitutions    
-    -- traceM ("ELAM[..]0: " ++ show env ++ " " ++ show subs)
-    -- traceM ("ELAM[..]1: " ++ show e)
     et <- local (envInsert param (emptyQType paramt)) (typeOf (ELam params e))
     applySubstitutionsM (paramt :-> et)
   -- Exp1
@@ -266,28 +235,16 @@ instance Typeable Exp where
   typeOf (EObelus e1 e2) = typeOfIII e1 e2
   -- Exp4
   typeOf (EInt _) = return TInt
+  typeOf (ENInt _) = return TInt
   typeOf EBoolTrue = return TBool
   typeOf EBoolFalse = return TBool
   typeOf (EApp1 f params) = do
     ft <- typeOf f
-    foldM (\acc param -> do
-      paramt <- typeOf param
-      ot <- newLabel
-      unificate acc (paramt :-> ot)
-      return ot) ft params
+    typeOfApplyArgumentsToFunction ft params
   typeOf (EApp2 f params) = do
     fqt <- asks (envGet f)
-    subs <- getSubstitutions
-    env <- ask
-    -- traceM ("EAPP2.0: " ++ show env ++ " " ++ show subs)
-    -- traceM ("EAPP2.1: " ++ show f ++ " " ++ show params)
     ft <- instantiate fqt
-    -- traceM ("EAPP2.2: " ++ show ft)
-    foldM (\acc param -> do
-      paramt <- typeOf param
-      ot <- newLabel
-      unificate acc (paramt :-> ot)
-      return ot) ft params
+    typeOfApplyArgumentsToFunction ft params
   typeOf (EListConst1 elems) = do
     t <- newLabel
     foldM (\acc elem -> do
@@ -302,19 +259,20 @@ instance Typeable Exp where
     unificate (TList p1t) p2t
     return (TList p1t)
 
+builtInFunctions :: [(Ident, QType)]
 builtInFunctions = [
-    (Ident "empty", Forall (Set.singleton (-1)) ((TList (TVar (-1))) :-> TBool)),
-    (Ident "head", Forall (Set.singleton (-2)) ((TList (TVar (-2))) :-> (TVar (-2)))),
-    (Ident "tail", Forall (Set.singleton (-3)) ((TList (TVar (-3))) :-> (TList (TVar (-3)))))
+    (Ident "empty", Forall (Set.singleton (-1)) (TList (TVar (-1)) :-> TBool)),
+    (Ident "head", Forall (Set.singleton (-2)) (TList (TVar (-2)) :-> TVar (-2))),
+    (Ident "tail", Forall (Set.singleton (-3)) (TList (TVar (-3)) :-> TList (TVar (-3))))
   ]
 
 runTypeOf :: Exp -> Either String Type
 runTypeOf e = 
   case runReader (runStateT (runEitherT (typeOf e)) (0, Map.empty)) (Env (Map.fromList builtInFunctions)) of
-    (Left msg, (l, subs)) -> error msg
-    (Right t, (l, subs)) -> return $ applySubstitutions subs t
+    (Left msg, (_, _)) -> error msg
+    (Right t, (_, subs)) -> return $ applySubstitutions subs t
 
-checkType2 e = 
+{-checkType2 e = 
   case runReader (runStateT (runEitherT (typeOf e)) (0, Map.empty)) (Env Map.empty) of
     (Left msg, (l, subs)) -> error msg
     (Right t, (l, subs)) -> (t, l, subs, applySubstitutions subs t)
@@ -328,11 +286,11 @@ test3 = ELam [Ident "x", Ident "y", Ident "z"] (
 intList = EListConst1 [EInt 1]
 list = EListConst1 []
 test4 = ELam [Ident "x"] (EIf (EApp2 (Ident "x") [PInt 1]) list intList)
-test5 = ELet (Ident "id") [(Ident "x")] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 6]) -- let id x = x in id id 5
-test5_1 = ELet (Ident "id") [(Ident "x")] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id")]) -- let id x = x in id id
+test5 = ELet (Ident "id") [Ident "x"] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 6]) -- let id x = x in id id 5
+test5_1 = ELet (Ident "id") [Ident "x"] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [PApp2 (Ident "id")]) -- let id x = x in id id
 
 -- let id x = x in id
-test6 = ELet (Ident "id") [(Ident "x")] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [])
+test6 = ELet (Ident "id") [Ident "x"] (EApp2 (Ident "x") []) (EApp2 (Ident "id") [])
 -- (\id -> id id 5) (x x) // fail
 test7 = EApp1 (ELam [Ident "id"] (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 5]))
               [PApp1 (ELam [Ident "x"] (EApp2 (Ident "x") []))]
@@ -341,11 +299,6 @@ test8 = ELam [Ident "id"] (EApp2 (Ident "id") [PApp2 (Ident "id"), PInt 5])
 -- (\id -> id 5)
 test9 = ELam [Ident "id"] (EApp2 (Ident "id") [PInt 5])
 
-test10 = 
-  let id x = x in
-  let b x = if x then x else x in
-  [id, b]
-
 test11 = EApp1 (ELam [Ident "x"] (EApp2 (Ident "x") [])) []
-test12 = EIf EBoolTrue (EApp1 (ELam [Ident "x"] (EApp2 (Ident "x") [])) []) (EApp1 (ELam [Ident "x"] (EApp2 (Ident "x") [])) [])
+test12 = EIf EBoolTrue (EApp1 (ELam [Ident "x"] (EApp2 (Ident "x") [])) []) (EApp1 (ELam [Ident "x"] (EApp2 (Ident "x") [])) [])-}
 
