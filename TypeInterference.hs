@@ -12,8 +12,8 @@ import Data.Maybe
 import Data.Monoid
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Prelude ()
-import Prelude.Compat
+import Data.Traversable (sequence)
+import Prelude hiding (sequence)
 
 type Label = Int
 
