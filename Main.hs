@@ -44,5 +44,5 @@ main = do
   args <- getArgs
   case args of
     [f] -> runFile pExp f
-    _ -> print "usage: runhaskell Main.hs source_file"
+    _ -> hPutStrLn stderr "usage: runhaskell Main.hs source_file"
 
