@@ -1,5 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
-module Interpreter where
+module Evaluator where
 
 import BNFC.AbsLanguage
 import Control.Monad.Reader hiding (sequence)
